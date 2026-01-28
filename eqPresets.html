@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>Aurivo Hazır Ayarlar — Aurivo Medya Player</title>
+    <link rel="stylesheet" href="styles/eqPresets.css">
+</head>
+
+<body>
+    <div class="preset-shell">
+        <div class="preset-header">
+            <h1 class="preset-title">Hazır Ayarlar</h1>
+        </div>
+
+        <div class="preset-search">
+            <input id="presetSearch" class="preset-search-input" type="text"
+                placeholder="Hazır ayar ara... (örn. bass, v-shape, vocal)" autocomplete="off" spellcheck="false" />
+            <select id="presetGroup" class="preset-group" aria-label="Hazır ayar grubu">
+                <option value="all" selected>Tümü</option>
+                <option value="bass">Bas</option>
+                <option value="treble">Tiz</option>
+                <option value="vocal">Vokal</option>
+                <option value="jazz">Caz</option>
+                <option value="classical">Klasik</option>
+                <option value="electronic">Elektronik</option>
+                <option value="pop">Pop</option>
+                <option value="rock">Rock</option>
+                <option value="vshape">V-Shape</option>
+                <option value="flat">Düz</option>
+                <option value="other">Diğer</option>
+            </select>
+        </div>
+
+        <div id="presetStatus" class="preset-status" aria-live="polite"></div>
+
+        <div id="presetList" class="preset-list" aria-label="Hazır ayarlar listesi"></div>
+
+        <div class="preset-footer">
+            <button id="presetOkBtn" class="preset-ok">Tamam</button>
+        </div>
+    </div>
+
+    <script src="eqPresetsRenderer.js"></script>
+</body>
+
+</html>

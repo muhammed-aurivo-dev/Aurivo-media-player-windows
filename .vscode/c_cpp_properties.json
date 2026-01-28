@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/native",
+                "${workspaceFolder}/libs/bass/c",
+                "${workspaceFolder}/libs/bass_fx/c",
+                "${workspaceFolder}/native/node_modules/node-addon-api",
+                "/usr/include/node"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

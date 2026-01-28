@@ -1,0 +1,358 @@
+class RainbowSlider {
+    constructor(canvas, config = {}) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d', { alpha: true });
+        
+        // Configuration
+        this.minValue = config.minValue !== undefined ? config.minValue : -12;
+        this.maxValue = config.maxValue !== undefined ? config.maxValue : 12;
+        this.value = config.value !== undefined ? config.value : 0;
+        this.stepSize = config.stepSize !== undefined ? config.stepSize : 0.1;
+        this.wheelStep = config.wheelStep || 0.5;
+        this.frequency = config.frequency;
+
+        // State variables matching C++ implementation
+        this.shift = 0;
+        this.isDragging = false;
+        this.isHovered = false;
+        this.lastPos = { x: 0, y: 0 };
+        this.targetValue = this.value; // For smooth animation
+        this.lastNotifyTime = 0;
+        
+        // Callbacks
+        this.listeners = [];
+
+        // Setup
+        this.setupEvents();
+        
+        // Start animation loop
+        this.lastTime = performance.now();
+        requestAnimationFrame((t) => this.animate(t));
+    }
+
+    setRange(min, max) {
+        this.minValue = min;
+        this.maxValue = max;
+        // Keep current relative position or clamp?
+        this.setValue(this.targetValue); 
+    }
+
+    setValue(val) {
+        let clamped = Math.min(Math.max(val, this.minValue), this.maxValue);
+        if (this.stepSize > 0) {
+            clamped = Math.round(clamped / this.stepSize) * this.stepSize;
+            clamped = Math.min(Math.max(clamped, this.minValue), this.maxValue);
+        }
+        
+        this.targetValue = clamped;
+        
+        // Instant update if uninitialized
+        if (Math.abs(this.value - this.targetValue) > (this.maxValue - this.minValue)) {
+             this.value = this.targetValue;
+        }
+    }
+
+    getValue() {
+        return this.value;
+    }
+
+    onChange(callback) {
+        this.listeners.push(callback);
+    }
+
+    notifyListeners() {
+        this.listeners.forEach(cb => cb(this.value));
+    }
+
+    setupEvents() {
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            this.isDragging = true;
+            this.handleInput(e.clientY);
+            
+            // Capture events outside canvas
+            window.addEventListener('mousemove', this.handleWindowMouseMove);
+            window.addEventListener('mouseup', this.handleWindowMouseUp);
+        });
+
+        this.canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY;
+            if (delta === 0) return;
+            
+            // C++: delta > 0 is UP (away user) -> +1
+            // DOM: deltaY < 0 is UP (scroll up)
+            // So if deltaY < 0 -> Increase
+            
+            const stepDirection = e.deltaY < 0 ? 1 : -1;
+            let step = this.wheelStep;
+            if (e.shiftKey) step *= 0.25;
+            
+            this.setValue(this.value + stepDirection * step);
+        });
+
+        this.canvas.addEventListener('mouseenter', () => { this.isHovered = true; });
+        this.canvas.addEventListener('mouseleave', () => { this.isHovered = false; });
+    }
+    
+    handleWindowMouseMove = (e) => {
+        if (!this.isDragging) return;
+        
+        // We need clientY relative to canvas rect
+        const rect = this.canvas.getBoundingClientRect();
+        // Since event is global, e.clientY is relative to viewport.
+        // But handleInput expects relative Y? Or global Y?
+        
+        // Wait, handleInput implementation below should handle relative calc logic
+        // Let's pass ClientY and let handleInput do math against Rect.
+        
+        this.handleInput(e.clientY);
+    }
+    
+    handleWindowMouseUp = (e) => {
+        this.isDragging = false;
+        window.removeEventListener('mousemove', this.handleWindowMouseMove);
+        window.removeEventListener('mouseup', this.handleWindowMouseUp);
+    }
+    
+    handleInput(clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const y = clientY - rect.top;
+        
+        const h = this.canvas.height; 
+        
+        // Check if canvas is scaled (DPI). Usually event is in CSS pixels.
+        // rect.height is CSS pixels.
+        // y is CSS pixels.
+        // So we can compute ratio 0..1
+        
+        const top = 8;
+        const bottom = rect.height - 8;
+        const trackHeight = bottom - top;
+        
+        if (trackHeight <= 0) return;
+        
+        const pos = Math.max(top, Math.min(y, bottom));
+        
+        // 0 is Top (Max), Height is Bottom (Min) in typical sliders?
+        // C++: top=8, bottom=h-8.
+        // t = 1.0 - (pos-top)/trackHeight.
+        // If pos = top (8), t=1.0.
+        // If pos = bottom, t=0.0.
+        // Value = min + t * (max - min).
+        // So Top is MAX value. Bottom is MIN value.
+        
+        const t = 1.0 - (pos - top) / trackHeight;
+        
+        /* 
+         Note: In browser, events are CSS pixels. 
+         drawing is Canvas pixels. 
+         If logic uses ratio 0..1, straightforward mapping works.
+        */
+        
+        let target = this.minValue + t * (this.maxValue - this.minValue);
+        this.setValue(target);
+    }
+    
+    animate(timestamp) {
+        const dt = timestamp - this.lastTime;
+        
+        // C++: Every 50ms, shift += 0.02.
+        // Rate: 0.02 / 50ms = 0.0004 per ms.
+        this.shift += 0.0004 * dt;
+        if (this.shift > 1.0) this.shift -= 1.0;
+        
+        // Value Smoothing (Inertia)
+        const diff = this.targetValue - this.value;
+        if (Math.abs(diff) > 0.001) {
+            const ease = 0.25; 
+            this.value += diff * ease;
+            
+            // Notify listener (Throttled)
+            if (timestamp - this.lastNotifyTime > 32) {
+                this.notifyListeners();
+                this.lastNotifyTime = timestamp;
+            }
+        } else if (Math.abs(diff) > 0) {
+            this.value = this.targetValue;
+            this.notifyListeners();
+        }
+
+        this.lastTime = timestamp;
+        this.draw();
+        
+        requestAnimationFrame((t) => this.animate(t));
+    }
+    
+    hsvToRgb(h, s, v, a = 255) {
+        // Simple HSV to RGB conversion
+        // input: h [0, 360], s [0, 255], v [0, 255]
+        // output: rgba string
+        
+        let fC = v * s / (255 * 255); // s, v are 0-255 in C++ code provided (e.g. 210, 255)
+        // Adjust for standard 0-1 range for s involved in math?
+        // Wait, C++ QColor::fromHsv(h, s, v). s, v are 0-255.
+        // Standard formula uses 0-1.
+        
+        let s_norm = s / 255.0;
+        let v_norm = v / 255.0;
+        
+        let C = v_norm * s_norm;
+        let H_prime = h / 60.0;
+        let X = C * (1 - Math.abs((H_prime % 2) - 1));
+        let m = v_norm - C;
+        
+        let r, g, b;
+        if (H_prime < 1) { r = C; g = X; b = 0; }
+        else if (H_prime < 2) { r = X; g = C; b = 0; }
+        else if (H_prime < 3) { r = 0; g = C; b = X; }
+        else if (H_prime < 4) { r = 0; g = X; b = C; }
+        else if (H_prime < 5) { r = X; g = 0; b = C; }
+        else { r = C; g = 0; b = X; }
+        
+        r = Math.round((r + m) * 255);
+        g = Math.round((g + m) * 255);
+        b = Math.round((b + m) * 255);
+        
+        return `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+    }
+
+    ratio() {
+        if (this.maxValue === this.minValue) return 0;
+        return Math.max(0, Math.min((this.value - this.minValue) / (this.maxValue - this.minValue), 1));
+    }
+    
+    colorAtRatio(r, alpha = 255, s = 220, v = 255) {
+        let hue = (this.shift * 360.0 + Math.max(0, Math.min(r, 1)) * 300.0) % 360.0;
+        return this.hsvToRgb(hue, s, v, alpha);
+    }
+
+    draw() {
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        
+        // DPI Handling usually done outside, but let's assume canvas coordinate space matches pixel size for now.
+        // C++: default width 26, height 150.
+        
+        ctx.clearRect(0, 0, w, h);
+        
+        const cx = w / 2;
+        
+        // Track Rect: (center.x - 4, top + 8, width 8, height - 16)
+        const trackX = cx - 4;
+        const trackY = 8;
+        const trackW = 8;
+        const trackH = h - 16;
+        
+        // Draw track base (dim rainbow)
+        // Gradient: BottomLeft to TopLeft
+        const grad = ctx.createLinearGradient(trackX, trackY + trackH, trackX, trackY);
+        const steps = 28;
+        for (let i = 0; i <= steps; ++i) {
+            let t = i / steps;
+            let hue = (this.shift * 360.0 + t * 300.0) % 360.0;
+            grad.addColorStop(t, this.hsvToRgb(hue, 210, 255, 90));
+        }
+        
+        ctx.fillStyle = grad;
+        
+        // Rounded Rect for Track
+        ctx.beginPath();
+        ctx.roundRect(trackX, trackY, trackW, trackH, 4);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(40, 40, 40, 0.63)"; // 160/255
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        // Filled Portion
+        // Bottom up. 
+        // Handle Y = trackRect.bottom - trackHeight * r
+        const r = this.ratio();
+        const handleY = (trackY + trackH) - (trackH * r);
+        
+        // Filled rect
+        const filledY = handleY;
+        const filledH = (trackY + trackH) - handleY;
+        
+        if (filledH > 0.5) {
+             const brightGrad = ctx.createLinearGradient(trackX, trackY + trackH, trackX, trackY);
+             for (let i = 0; i <= steps; ++i) {
+                let t = i / steps;
+                let hue = (this.shift * 360.0 + t * 300.0) % 360.0;
+                brightGrad.addColorStop(t, this.hsvToRgb(hue, 235, 255, 220));
+             }
+             
+             ctx.save();
+             // Clip to filled area
+             // QPainter::setClipRect(filledRect) -> Intersection with track rounded rect?
+             // C++ draws rounded rect again with bright gradient but clipped to filledRect area.
+             
+             ctx.beginPath();
+             ctx.rect(trackX, filledY, trackW, filledH);
+             ctx.clip();
+             
+             ctx.beginPath();
+             ctx.roundRect(trackX, trackY, trackW, trackH, 4);
+             ctx.fillStyle = brightGrad;
+             ctx.fill();
+             
+             ctx.restore();
+        }
+        
+        // Handle
+        const handleX = cx; // center
+        
+        let radius = 7.0;
+        if (this.isDragging) radius = 10.0;
+        else if (this.isHovered) radius = 9.0;
+        
+        // Glow
+        const glowR = radius + 3;
+        const glowGrad = ctx.createRadialGradient(handleX, handleY, 0, handleX, handleY, glowR);
+        
+        // Calculate handle hue
+        // colorAtRatio(r) uses r for hue shift
+        // float hue = fmod(m_shift * 360.0f + qBound(0.0f, r, 1.0f) * 300.0f, 360.0f);
+        // It uses 'r' (position) to pick color from the rainbow range.
+        const handleColorRgb = this.colorAtRatio(r, 255, 220, 255); 
+        
+        // Parse handleColorRgb to inject alpha
+        // A bit wasteful re-parsing, but simpler than refactoring hsvToRgb to return object
+        const rgbMatch = handleColorRgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        const R = rgbMatch[1], G = rgbMatch[2], B = rgbMatch[3];
+        
+        let glowAlpha = this.isDragging ? 0.92 : (this.isHovered ? 0.8 : 0.63); // 235, 205, 160
+        
+        glowGrad.addColorStop(0, `rgba(${R}, ${G}, ${B}, ${glowAlpha})`);
+        glowGrad.addColorStop(1, `rgba(${R}, ${G}, ${B}, 0)`);
+        
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(handleX, handleY, glowR, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Handle Ring
+        let ringWidth = (this.isDragging || this.isHovered) ? 3 : 2;
+        ctx.lineWidth = ringWidth;
+        ctx.strokeStyle = handleColorRgb; // handle color
+        ctx.fillStyle = "rgba(18, 18, 18, 0.92)"; // 235
+        
+        ctx.beginPath();
+        ctx.arc(handleX, handleY, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Inner Hole
+        ctx.fillStyle = "rgba(8, 8, 8, 1)";
+        ctx.beginPath();
+        ctx.arc(handleX, handleY, Math.max(1.0, radius - 2.8), 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Tiny Highlight
+        ctx.fillStyle = "rgba(255, 255, 255, 0.82)"; // 210
+        ctx.beginPath();
+        ctx.arc(handleX - 1.4, handleY - 1.4, 1.8, 0, 2 * Math.PI);
+        ctx.fill();
+    }
+}

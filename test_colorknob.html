@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ColorKnob Test</title>
+  <style>
+    body {
+      background: #1f1f1f;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      margin: 0;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: #18c471;
+    }
+    
+    .knobs-container {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+    
+    canvas {
+      border: 1px solid #333;
+      border-radius: 8px;
+      background: #2a2a2a;
+    }
+    
+    .info {
+      text-align: center;
+      margin-top: 40px;
+      padding: 20px;
+      background: #2a2a2a;
+      border-radius: 8px;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    
+    .info h2 {
+      color: #18c471;
+      margin-top: 0;
+    }
+    
+    .info ul {
+      text-align: left;
+      line-height: 1.8;
+    }
+    
+    .value-display {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 18px;
+      color: #18c471;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 ColorKnob Widget Test</h1>
+  
+  <div class="knobs-container">
+    <canvas id="knob1" style="width: 130px; height: 170px;"></canvas>
+    <canvas id="knob2" style="width: 130px; height: 170px;"></canvas>
+    <canvas id="knob3" style="width: 130px; height: 170px;"></canvas>
+    <canvas id="knob4" style="width: 130px; height: 170px;"></canvas>
+  </div>
+  
+  <div class="value-display" id="valueDisplay">
+    Değerler: Bas: 0.0 dB | Orta: 0.0 dB | Tiz: 0.0 dB | Stereo: 0 %
+  </div>
+  
+  <div class="info">
+    <h2>Kontroller</h2>
+    <ul>
+      <li><strong>Mouse Drag:</strong> Yukarı/aşağı veya sağa/sola sürükle (Y + X*0.35 hassasiyeti)</li>
+      <li><strong>Mouse Wheel:</strong> Yukarı/aşağı scroll (±0.5 adım)</li>
+      <li><strong>Shift + Wheel:</strong> Hassas ayar (0.25x hız)</li>
+      <li><strong>Shift + Drag:</strong> Daha hassas sürükleme (2.5x hassasiyet)</li>
+      <li><strong>Double Click:</strong> 0'a sıfırla</li>
+      <li><strong>Hover:</strong> Animasyonlu gökkuşağı efekti</li>
+    </ul>
+    
+    <h2>Özellikler</h2>
+    <ul>
+      <li>✅ 54 segmentli gökkuşağı halka</li>
+      <li>✅ Animasyonlu renk kayması (50ms interval)</li>
+      <li>✅ İki katman (background 85 alpha, active 235 alpha)</li>
+      <li>✅ Glow efektli handle (hover/drag durumlarında değişir)</li>
+      <li>✅ Merkez gri nokta</li>
+      <li>✅ C++ Qt ColorKnob portuna %100 uyumlu</li>
+    </ul>
+  </div>
+  
+  <script src="modules/soundEffects/widgets/colorKnob.js"></script>
+  <script>
+    // Bas (100 Hz)
+    const bassKnob = new ColorKnob(document.getElementById('knob1'), {
+      label: 'Bas (100 Hz)',
+      min: -12,
+      max: 12,
+      value: 0,
+      decimals: 1,
+      stepSize: 0.1,
+      wheelStep: 0.5
+    });
+    
+    // Orta (1 kHz)
+    const midKnob = new ColorKnob(document.getElementById('knob2'), {
+      label: 'Orta (1 kHz)',
+      min: -12,
+      max: 12,
+      value: 0,
+      decimals: 1,
+      stepSize: 0.1,
+      wheelStep: 0.5
+    });
+    
+    // Tiz (10 kHz)
+    const trebleKnob = new ColorKnob(document.getElementById('knob3'), {
+      label: 'Tiz (10 kHz)',
+      min: -12,
+      max: 12,
+      value: 0,
+      decimals: 1,
+      stepSize: 0.1,
+      wheelStep: 0.5
+    });
+    
+    // Stereo Expander
+    const stereoKnob = new ColorKnob(document.getElementById('knob4'), {
+      label: 'Stereo Expander',
+      min: 0,
+      max: 100,
+      value: 0,
+      decimals: 0,
+      stepSize: 1,
+      wheelStep: 5
+    });
+    
+    // Value display update
+    function updateDisplay() {
+      const bass = bassKnob.getValue().toFixed(1);
+      const mid = midKnob.getValue().toFixed(1);
+      const treble = trebleKnob.getValue().toFixed(1);
+      const stereo = Math.round(stereoKnob.getValue());
+      
+      document.getElementById('valueDisplay').textContent = 
+        `Değerler: Bas: ${bass} dB | Orta: ${mid} dB | Tiz: ${treble} dB | Stereo: ${stereo} %`;
+    }
+    
+    bassKnob.onChange((value) => {
+      console.log('Bas:', value);
+      updateDisplay();
+    });
+    
+    midKnob.onChange((value) => {
+      console.log('Orta:', value);
+      updateDisplay();
+    });
+    
+    trebleKnob.onChange((value) => {
+      console.log('Tiz:', value);
+      updateDisplay();
+    });
+    
+    stereoKnob.onChange((value) => {
+      console.log('Stereo:', value);
+      updateDisplay();
+    });
+    
+    // Initial display
+    updateDisplay();
+  </script>
+</body>
+</html>

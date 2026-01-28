@@ -1,0 +1,59 @@
+
+> aurivo-audio-native@1.0.0 rebuild
+> node-gyp rebuild && npm run copy-libs
+
+gyp info it worked if it ends with ok
+gyp info using node-gyp@10.3.1
+gyp info using node@25.4.0 | linux | x64
+(node:89873) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+gyp info find Python using Python version 3.14.2 found at "/usr/bin/python3"
+
+gyp info spawn /usr/bin/python3
+gyp info spawn args [
+gyp info spawn args '/home/muhammed-dali/Aurivo-Medya-Player/native/node_modules/node-gyp/gyp/gyp_main.py',
+gyp info spawn args 'binding.gyp',
+gyp info spawn args '-f',
+gyp info spawn args 'make',
+gyp info spawn args '-I',
+gyp info spawn args '/home/muhammed-dali/Aurivo-Medya-Player/native/build/config.gypi',
+gyp info spawn args '-I',
+gyp info spawn args '/home/muhammed-dali/Aurivo-Medya-Player/native/node_modules/node-gyp/addon.gypi',
+gyp info spawn args '-I',
+gyp info spawn args '/home/muhammed-dali/.cache/node-gyp/25.4.0/include/node/common.gypi',
+gyp info spawn args '-Dlibrary=shared_library',
+gyp info spawn args '-Dvisibility=default',
+gyp info spawn args '-Dnode_root_dir=/home/muhammed-dali/.cache/node-gyp/25.4.0',
+gyp info spawn args '-Dnode_gyp_dir=/home/muhammed-dali/Aurivo-Medya-Player/native/node_modules/node-gyp',
+gyp info spawn args '-Dnode_lib_file=/home/muhammed-dali/.cache/node-gyp/25.4.0/<(target_arch)/node.lib',
+gyp info spawn args '-Dmodule_root_dir=/home/muhammed-dali/Aurivo-Medya-Player/native',
+gyp info spawn args '-Dnode_engine=v8',
+gyp info spawn args '--depth=.',
+gyp info spawn args '--no-parallel',
+gyp info spawn args '--generator-output',
+gyp info spawn args 'build',
+gyp info spawn args '-Goutput_dir=.'
+gyp info spawn args ]
+gyp info spawn make
+gyp info spawn args [ 'BUILDTYPE=Release', '-C', 'build' ]
+make: Entering directory '/home/muhammed-dali/Aurivo-Medya-Player/native/build'
+  CXX(target) Release/obj.target/aurivo_audio/aurivo_audio.o
+../aurivo_audio.cpp: In member function 'void AurivoAudioEngine::clearAllFx()':
+../aurivo_audio.cpp:1280:13: hata: 'g_crossfeedDspHandle' bu etki alanında bildirilmemiş
+ 1280 |         if (g_crossfeedDspHandle) {
+      |             ^~~~~~~~~~~~~~~~~~~~
+../aurivo_audio.cpp: In static member function 'static void AurivoAudioEngine::dspCallback(HDSP, DWORD, void*, DWORD, void*)':
+../aurivo_audio.cpp:2701:19: UYARI: unused variable 'attackCoef' [-Wunused-variable]
+ 2701 |             float attackCoef = expf(-1.0f / (g_truePeakLimiter.lookahead * 44.1f));  // ~44.1kHz
+      |                   ^~~~~~~~~~
+make: *** [aurivo_audio.target.mk:115: Release/obj.target/aurivo_audio/aurivo_audio.o] Error 1
+make: Leaving directory '/home/muhammed-dali/Aurivo-Medya-Player/native/build'
+gyp ERR! build error 
+gyp ERR! stack Error: `make` failed with exit code: 2
+gyp ERR! stack at ChildProcess.<anonymous> (/home/muhammed-dali/Aurivo-Medya-Player/native/node_modules/node-gyp/lib/build.js:216:23)
+gyp ERR! System Linux 6.18.6-zen1-1-zen
+gyp ERR! command "/usr/bin/node" "/home/muhammed-dali/Aurivo-Medya-Player/native/node_modules/.bin/node-gyp" "rebuild"
+gyp ERR! cwd /home/muhammed-dali/Aurivo-Medya-Player/native
+gyp ERR! node -v v25.4.0
+gyp ERR! node-gyp -v v10.3.1
+gyp ERR! not ok 

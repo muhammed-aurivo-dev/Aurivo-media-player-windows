@@ -1,0 +1,20 @@
+{
+    "name": "aurivo-audio-native",
+    "version": "1.0.0",
+    "description": "Aurivo Audio Engine - C++ Native Addon with BASS (Cross-Platform)",
+    "main": "build/Release/aurivo_audio.node",
+    "scripts": {
+        "install": "node-gyp rebuild && npm run copy-libs",
+        "build": "node-gyp rebuild && npm run copy-libs",
+        "rebuild": "node-gyp rebuild && npm run copy-libs",
+        "copy-libs": "node copy-libs.js",
+        "clean": "node-gyp clean && node -e \"require('fs').rmSync('build', {recursive:true, force:true})\""
+    },
+    "dependencies": {
+        "node-addon-api": "^7.0.0",
+        "node-gyp": "^10.0.0"
+    },
+    "os": ["linux", "win32", "darwin"],
+    "cpu": ["x64", "arm64"],
+    "gypfile": true
+}

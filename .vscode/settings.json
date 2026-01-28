@@ -1,0 +1,8 @@
+{
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}/build"
+  ],
+  "cmake.sourceDirectory": "/home/muhammed-dali/Aurivo-Medya-Player/dist/linux-unpacked/resources/app.asar/Aurivo-Medya-Player",
+  "editor.language.brackets": []
+}

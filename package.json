@@ -1,0 +1,127 @@
+{
+  "name": "aurivo-media-player",
+  "version": "1.0.0",
+  "description": "Aurivo Media Player - Electron App",
+  "main": "main.js",
+  "scripts": {
+    "start": "ELECTRON_OZONE_PLATFORM_HINT=wayland ELECTRON_ENABLE_WAYLAND=1 OZONE_PLATFORM=wayland electron .",
+    "dev": "AURIVO_DEV=1 ELECTRON_OZONE_PLATFORM_HINT=wayland ELECTRON_ENABLE_WAYLAND=1 OZONE_PLATFORM=wayland electron . --enable-logging",
+    "rebuild-native": "cd native && npm run rebuild",
+    "verify:libs": "node native/verify-libs.js",
+    "build": "node native/copy-libs.js && electron-builder",
+    "build:linux": "node native/copy-libs.js linux && electron-builder --linux",
+    "build:win": "node native/copy-libs.js win32 && echo '⚠️  Windows ffmpeg binary gerekli: third_party/ffmpeg/ffmpeg.exe' && electron-builder --win zip",
+    "build:win:zip": "node native/copy-libs.js win32 && echo '⚠️  Windows ffmpeg binary gerekli: third_party/ffmpeg/ffmpeg.exe' && electron-builder --win zip",
+    "build:mac": "node native/copy-libs.js darwin && electron-builder --mac"
+  },
+  "author": {
+    "name": "Aurivo",
+    "email": "support@aurivo.app"
+  },
+  "homepage": "https://aurivo.app",
+  "license": "MIT",
+  "build": {
+    "appId": "com.aurivo.mediaplayer",
+    "productName": "Aurivo Media Player",
+    "files": [
+      "**/*",
+      "!native/build/Release/obj.target/**",
+      "!native/build/Release/.deps/**",
+      "!native/**/*.o",
+      "!native/**/*.a",
+      "native/build/Release/*.node",
+      "native/build/Release/*.so",
+      "native/build/Release/*.dll",
+      "native/build/Release/*.dylib"
+    ],
+    "extraResources": [
+      {
+        "from": "native/build/Release",
+        "to": "native/build/Release",
+        "filter": [
+          "*.node",
+          "*.so",
+          "*.dll",
+          "*.dylib"
+        ]
+      },
+      {
+        "from": "/usr/bin/ffmpeg",
+        "to": "bin/ffmpeg"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "maintainer": "Aurivo <support@aurivo.app>",
+      "category": "AudioVideo",
+      "executableName": "aurivo",
+      "extraFiles": [
+        {
+          "from": "native/build/Release",
+          "to": "resources/native/build/Release",
+          "filter": [
+            "*.so",
+            "*.node"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "libs/windows",
+          "to": "native/build/Release",
+          "filter": [
+            "*.dll"
+          ]
+        },
+        {
+          "from": "third_party/ffmpeg/ffmpeg.exe",
+          "to": "bin/ffmpeg.exe"
+        }
+      ],
+      "extraFiles": [
+        {
+          "from": "native/build/Release",
+          "to": "resources/native/build/Release",
+          "filter": [
+            "*.dll",
+            "*.node"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.music",
+      "extraFiles": [
+        {
+          "from": "native/build/Release",
+          "to": "resources/native/build/Release",
+          "filter": [
+            "*.dylib",
+            "*.node"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "node-id3": "^0.2.9"
+  }
+}

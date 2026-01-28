@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>Ses Efektleri — Aurivo Medya Player</title>
+    <link rel="stylesheet" href="styles/soundEffects.css">
+</head>
+
+<body>
+    <div class="sfx-container">
+        <!-- Üst Başlık Barı -->
+        <header class="sfx-header">
+            <div class="header-left">
+                <img src="icons/aurivo_256.png" alt="Aurivo" class="header-logo" onerror="this.style.display='none'">
+                <div class="header-tabs">
+                    <button class="header-tab active" id="tabEffects">Efektler</button>
+                    <button class="header-tab" id="tabPresets">Ön Ayarlar</button>
+                </div>
+                <label class="master-toggle">
+                    <input type="checkbox" id="masterEffectsToggle" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Ses Efektlerini Etkinleştir</span>
+                </label>
+            </div>
+            <div class="header-right">
+                <span class="dsp-status" id="dspStatus">DSP: Açık • PY: Açık • Aktif: 0</span>
+                <button class="header-btn minimize-btn" id="minimizeBtn" title="Küçült">─</button>
+                <button class="header-btn maximize-btn" id="maximizeBtn" title="Büyüt/Küçült">☐</button>
+                <button class="header-btn close-btn" id="closeBtn" title="Kapat">✕</button>
+            </div>
+        </header>
+
+        <div class="sfx-main">
+            <!-- Sol Sidebar - Efekt Listesi -->
+            <aside class="sfx-sidebar" id="effectsSidebar">
+                <div class="sidebar-section">
+                    <div class="effect-item active" data-effect="eq32">
+                        <span class="effect-icon">🎚️</span>
+                        <span class="effect-name">Ekolaycı (32-Bantlı)</span>
+                    </div>
+                    <div class="effect-item" data-effect="reverb">
+                        <span class="effect-icon">🎵</span>
+                        <span class="effect-name">Reverb (BASS FX)</span>
+                    </div>
+                    <div class="effect-item" data-effect="compressor">
+                        <span class="effect-icon">🎛️</span>
+                        <span class="effect-name">Dinamik Kompresör</span>
+                    </div>
+                    <div class="effect-item" data-effect="limiter">
+                        <span class="effect-icon">🔒</span>
+                        <span class="effect-name">Limiter</span>
+                    </div>
+                    <div class="effect-item" data-effect="bassboost">
+                        <span class="effect-icon">🔊</span>
+                        <span class="effect-name">Bas Güçlendirici</span>
+                    </div>
+                    <div class="effect-item" data-effect="noisegate">
+                        <span class="effect-icon">🎙️</span>
+                        <span class="effect-name">Akıllı Noise Gate</span>
+                    </div>
+                    <div class="effect-item" data-effect="deesser">
+                        <span class="effect-icon">🎤</span>
+                        <span class="effect-name">De-esser</span>
+                    </div>
+                    <div class="effect-item" data-effect="exciter">
+                        <span class="effect-icon">✨</span>
+                        <span class="effect-name">Netleştirici (Exciter)</span>
+                    </div>
+                    <div class="effect-item" data-effect="stereowidener">
+                        <span class="effect-icon">🔀</span>
+                        <span class="effect-name">Stereo Widener v2</span>
+                    </div>
+                    <div class="effect-item" data-effect="echo">
+                        <span class="effect-icon">🔁</span>
+                        <span class="effect-name">Echo (Yankı)</span>
+                    </div>
+                    <div class="effect-item" data-effect="convreverb">
+                        <span class="effect-icon">🎪</span>
+                        <span class="effect-name">Konvolüsyon Reverb (IR)</span>
+                    </div>
+                    <div class="effect-item" data-effect="peq">
+                        <span class="effect-icon">📊</span>
+                        <span class="effect-name">Parametrik EQ (PEQ)</span>
+                    </div>
+                    <div class="effect-item" data-effect="autogain">
+                        <span class="effect-icon">📈</span>
+                        <span class="effect-name">Auto Gain / Normalize</span>
+                    </div>
+                    <div class="effect-item" data-effect="truepeak">
+                        <span class="effect-icon">📏</span>
+                        <span class="effect-name">True Peak Limiter + Meter</span>
+                    </div>
+                    <div class="effect-item" data-effect="crossfeed">
+                        <span class="effect-icon">🎧</span>
+                        <span class="effect-name">Crossfeed (Kulaklık)</span>
+                    </div>
+                    <div class="effect-item" data-effect="bassmono">
+                        <span class="effect-icon">🔉</span>
+                        <span class="effect-name">Bass Mono</span>
+                    </div>
+                    <div class="effect-item" data-effect="dynamiceq">
+                        <span class="effect-icon">📊</span>
+                        <span class="effect-name">Dynamic EQ</span>
+                    </div>
+                    <div class="effect-item" data-effect="tapesat">
+                        <span class="effect-icon">📼</span>
+                        <span class="effect-name">Tape Saturation</span>
+                    </div>
+                    <div class="effect-item" data-effect="bitdither">
+                        <span class="effect-icon">🎚️</span>
+                        <span class="effect-name">Bit-depth / Dither</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Sağ İçerik Alanı -->
+            <main class="sfx-content" id="effectContent">
+                <!-- Dinamik içerik buraya yüklenir -->
+            </main>
+        </div>
+
+        <!-- Alt Durum Barı -->
+        <footer class="sfx-footer">
+            <span class="engine-info">Aurivo DSP Engine v3.0 • 48kHz / 32-bit Float Processing</span>
+        </footer>
+    </div>
+
+    <script src="modules/soundEffects/widgets/colorKnob.js"></script>
+    <script src="modules/soundEffects/widgets/rainbowSlider.js"></script>
+    <script src="modules/soundEffects/widgets/barAnalyzer.js"></script>
+    <script src="modules/soundEffects/widgets/eqResponse.js"></script>
+    <script src="soundEffectsRenderer.js"></script>
+</body>
+
+</html>

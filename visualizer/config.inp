@@ -1,0 +1,15 @@
+Mesh X = 64
+Mesh Y = 48
+Texture Size = 1024
+FPS = 60
+Window Width = 1280
+Window Height = 720
+Smooth Preset Duration = 5
+Preset Duration = 15
+Beat Sensitivity = 1.0
+Aspect Correction = true
+Shuffle Enabled = true
+Soft Cut Ratings Enabled = false
+Preset Path = ./third_party/projectm/presets
+Title Font = 
+Menu Font = 
