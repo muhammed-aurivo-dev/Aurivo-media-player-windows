@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -43,6 +44,62 @@
 #include "backends/imgui_impl_sdl2.h"
 
 namespace fs = std::filesystem;
+
+enum class UiLang {
+    EN,
+    TR,
+    AR,
+    FR,
+    DE,
+    ES,
+    HI,
+};
+
+static std::string toLowerAscii(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+    return s;
+}
+
+static UiLang detectUiLang() {
+    static std::optional<UiLang> cached;
+    if (cached) return *cached;
+
+    const char* raw =
+        (std::getenv("AURIVO_LANG") && *std::getenv("AURIVO_LANG")) ? std::getenv("AURIVO_LANG") :
+        (std::getenv("LC_ALL") && *std::getenv("LC_ALL")) ? std::getenv("LC_ALL") :
+        (std::getenv("LC_MESSAGES") && *std::getenv("LC_MESSAGES")) ? std::getenv("LC_MESSAGES") :
+        (std::getenv("LANG") && *std::getenv("LANG")) ? std::getenv("LANG") :
+        "";
+
+    std::string s = toLowerAscii(std::string(raw));
+    // Normalize common locale formats: "tr-TR", "tr_TR.UTF-8", "ar_SA@arabic" -> "tr"/"ar"
+    if (const auto pos = s.find_first_of(".@"); pos != std::string::npos) s.resize(pos);
+    if (const auto pos = s.find_first_of("-_"); pos != std::string::npos) s.resize(pos);
+
+    UiLang lang = UiLang::EN;
+    if (s == "tr") lang = UiLang::TR;
+    else if (s == "ar") lang = UiLang::AR;
+    else if (s == "fr") lang = UiLang::FR;
+    else if (s == "de") lang = UiLang::DE;
+    else if (s == "es") lang = UiLang::ES;
+    else if (s == "hi") lang = UiLang::HI;
+
+    cached = lang;
+    return lang;
+}
+
+static const char* L7(const char* en, const char* tr, const char* ar, const char* fr, const char* de, const char* es, const char* hi) {
+    switch (detectUiLang()) {
+        case UiLang::TR: return tr;
+        case UiLang::AR: return ar;
+        case UiLang::FR: return fr;
+        case UiLang::DE: return de;
+        case UiLang::ES: return es;
+        case UiLang::HI: return hi;
+        case UiLang::EN:
+        default: return en;
+    }
+}
 
 static uint64_t nowMs() {
     return SDL_GetTicks64();
@@ -711,13 +768,45 @@ static std::optional<std::string> findInterFontPath() {
             return fs::canonical(p, ec).string();
         }
     }
+	    return std::nullopt;
+}
+
+static std::optional<std::string> findFirstExistingFontPath(const std::vector<fs::path>& candidates) {
+    for (const auto& p : candidates) {
+        std::error_code ec;
+        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+            return fs::canonical(p, ec).string();
+        }
+    }
     return std::nullopt;
 }
 
+static std::optional<std::string> findArabicFontPath() {
+    const std::vector<fs::path> candidates = {
+        fs::path("assets/fonts/NotoSansArabic-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoSansArabic-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoSansArabicUI-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoNaskhArabicUI-Regular.ttf"),
+        fs::path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+    };
+    return findFirstExistingFontPath(candidates);
+}
+
+static std::optional<std::string> findDevanagariFontPath() {
+    const std::vector<fs::path> candidates = {
+        fs::path("assets/fonts/NotoSansDevanagari-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf"),
+        fs::path("/usr/share/fonts/noto/NotoSansDevanagariUI-Regular.ttf"),
+        fs::path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+    };
+    return findFirstExistingFontPath(candidates);
+}
+
 static void applyClementineishStyle() {
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 6.0f;
-    style.PopupRounding = 6.0f;
+	    ImGuiStyle& style = ImGui::GetStyle();
+	    style.WindowRounding = 6.0f;
+	    style.PopupRounding = 6.0f;
     style.FrameRounding = 5.0f;
     style.ScrollbarRounding = 6.0f;
     style.GrabRounding = 5.0f;
@@ -747,7 +836,7 @@ static void applyClementineishStyle() {
 }
 
 static void reloadFontsForScale(float scale) {
-    ImGuiIO& io = ImGui::GetIO();
+	    ImGuiIO& io = ImGui::GetIO();
 
     // Include Latin Extended-A to cover Turkish characters reliably.
     static ImVector<ImWchar> glyphRanges;
@@ -767,26 +856,72 @@ static void reloadFontsForScale(float scale) {
 
     io.Fonts->Clear();
 
-    ImFontConfig cfg;
-    cfg.OversampleH = 3;
-    cfg.OversampleV = 2;
-    cfg.PixelSnapH = true;
+	    ImFontConfig cfg;
+	    // Slightly larger + sharper font rendering by default.
+	    cfg.OversampleH = 4;
+	    cfg.OversampleV = 3;
+	    cfg.PixelSnapH = true;
+	    cfg.RasterizerMultiply = 1.15f; // a bit bolder for readability
 
-    const float basePx = 16.0f;
-    const float fontPx = std::max(12.0f, std::floor(basePx * scale));
+	    const float basePx = 18.0f;
+	    const float fontPx = std::max(14.0f, std::floor(basePx * scale));
 
-    ImFont* font = io.Fonts->AddFontFromFileTTF(g.fontPath.c_str(), fontPx, &cfg, glyphRanges.Data);
-    if (!font) {
-        std::cerr << "Failed to load font: " << g.fontPath << std::endl;
-        // Fallback to default
-        io.Fonts->AddFontDefault();
-    } else {
-        io.FontDefault = font;
-    }
+	    ImFont* font = io.Fonts->AddFontFromFileTTF(g.fontPath.c_str(), fontPx, &cfg, glyphRanges.Data);
+	    if (!font) {
+	        std::cerr << "Failed to load font: " << g.fontPath << std::endl;
+	        // Fallback to default
+	        io.Fonts->AddFontDefault();
+	    } else {
+	        io.FontDefault = font;
+	    }
 
-    // Recreate font texture as requested.
-    ImGui_ImplOpenGL3_DestroyFontsTexture();
-    ImGui_ImplOpenGL3_CreateFontsTexture();
+        // Add merged fallback fonts for non-Latin scripts (Arabic / Devanagari).
+        // Inter doesn't ship Arabic/Devanagari glyphs, so without a merged font ImGui shows "????".
+        if (detectUiLang() == UiLang::AR) {
+            // Dear ImGui in this repo doesn't ship GetGlyphRangesArabic(), so provide a basic Arabic range.
+            // Includes Arabic + supplement + extended + presentation forms.
+            static const ImWchar arabicRange[] = {
+                0x0600, 0x06FF,
+                0x0750, 0x077F,
+                0x08A0, 0x08FF,
+                0xFB50, 0xFDFF,
+                0xFE70, 0xFEFF,
+                0
+            };
+            if (auto arFont = findArabicFontPath()) {
+                ImFontConfig mergeCfg;
+                mergeCfg.MergeMode = true;
+                mergeCfg.OversampleH = cfg.OversampleH;
+                mergeCfg.OversampleV = cfg.OversampleV;
+                mergeCfg.PixelSnapH = cfg.PixelSnapH;
+                mergeCfg.RasterizerMultiply = cfg.RasterizerMultiply;
+                if (!io.Fonts->AddFontFromFileTTF(arFont->c_str(), fontPx, &mergeCfg, arabicRange)) {
+                    std::cerr << "[Font] Arabic merge font load failed: " << *arFont << std::endl;
+                }
+            } else {
+                std::cerr << "[Font] Arabic font not found (install noto-fonts or bundle a font in assets/fonts)." << std::endl;
+            }
+        } else if (detectUiLang() == UiLang::HI) {
+            // Dear ImGui doesn't ship a Devanagari glyph-range helper, so we provide a basic range.
+            static const ImWchar devRange[] = { 0x0900, 0x097F, 0 };
+            if (auto devFont = findDevanagariFontPath()) {
+                ImFontConfig mergeCfg;
+                mergeCfg.MergeMode = true;
+                mergeCfg.OversampleH = cfg.OversampleH;
+                mergeCfg.OversampleV = cfg.OversampleV;
+                mergeCfg.PixelSnapH = cfg.PixelSnapH;
+                mergeCfg.RasterizerMultiply = cfg.RasterizerMultiply;
+                if (!io.Fonts->AddFontFromFileTTF(devFont->c_str(), fontPx, &mergeCfg, devRange)) {
+                    std::cerr << "[Font] Devanagari merge font load failed: " << *devFont << std::endl;
+                }
+            } else {
+                std::cerr << "[Font] Devanagari font not found (install noto-fonts or bundle a font in assets/fonts)." << std::endl;
+            }
+        }
+
+	    // Recreate font texture as requested.
+	    ImGui_ImplOpenGL3_DestroyFontsTexture();
+	    ImGui_ImplOpenGL3_CreateFontsTexture();
 }
 
 static void rescaleImGui(float scale) {
@@ -824,69 +959,73 @@ static std::string truncateToFit(const std::string& text, float maxWidth, bool* 
 }
 
 static void renderContextMenuContents() {
-        // 1) Tam ekran göster/gizle
-        if (ImGui::MenuItem("Tam ekran göster/gizle", "F", g.fullscreen)) {
-            g.fullscreen = !g.fullscreen;
-            SDL_SetWindowFullscreen(g.window, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-        }
+	        // 1) Tam ekran göster/gizle
+	        if (ImGui::MenuItem(
+	                L7("Toggle fullscreen", "Tam ekran göster/gizle", "عرض/إخفاء ملء الشاشة", "Basculer plein écran", "Vollbild umschalten", "Alternar pantalla completa", "फुलस्क्रीन टॉगल करें"),
+	                "F",
+	                g.fullscreen
+	            )) {
+	            g.fullscreen = !g.fullscreen;
+	            SDL_SetWindowFullscreen(g.window, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+	        }
 
-        // 2) Kare oranı >  (requested as FPS radio submenu)
-        ImGui::SetNextWindowSizeConstraints(ImVec2(220, 0), ImVec2(FLT_MAX, FLT_MAX));
-        if (ImGui::BeginMenu("Kare oranı")) {
-            if (ImGui::RadioButton("Düşük (15 fps)", g.fpsMode == QualityFpsMode::LOW_15)) {
-                applyFpsMode(QualityFpsMode::LOW_15);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Orta (25 fps)", g.fpsMode == QualityFpsMode::MID_25)) {
-                applyFpsMode(QualityFpsMode::MID_25);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Yüksek (35 fps)", g.fpsMode == QualityFpsMode::HIGH_35)) {
-                applyFpsMode(QualityFpsMode::HIGH_35);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Süper yüksek (60 fps)", g.fpsMode == QualityFpsMode::SUPER_60)) {
-                applyFpsMode(QualityFpsMode::SUPER_60);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndMenu();
-        }
+	        // 2) Kare oranı >  (requested as FPS radio submenu)
+	        ImGui::SetNextWindowSizeConstraints(ImVec2(220, 0), ImVec2(FLT_MAX, FLT_MAX));
+	        if (ImGui::BeginMenu(L7("Frame rate", "Kare oranı", "معدل الإطارات", "Fréquence d’images", "Bildrate", "Velocidad de fotogramas", "फ़्रेम दर"))) {
+	            if (ImGui::RadioButton(L7("Low (15 fps)", "Düşük (15 fps)", "منخفض (15 fps)", "Faible (15 fps)", "Niedrig (15 fps)", "Bajo (15 fps)", "कम (15 fps)"), g.fpsMode == QualityFpsMode::LOW_15)) {
+	                applyFpsMode(QualityFpsMode::LOW_15);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("Medium (25 fps)", "Orta (25 fps)", "متوسط (25 fps)", "Moyen (25 fps)", "Mittel (25 fps)", "Medio (25 fps)", "मध्यम (25 fps)"), g.fpsMode == QualityFpsMode::MID_25)) {
+	                applyFpsMode(QualityFpsMode::MID_25);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("High (35 fps)", "Yüksek (35 fps)", "مرتفع (35 fps)", "Élevé (35 fps)", "Hoch (35 fps)", "Alto (35 fps)", "उच्च (35 fps)"), g.fpsMode == QualityFpsMode::HIGH_35)) {
+	                applyFpsMode(QualityFpsMode::HIGH_35);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("Super high (60 fps)", "Süper yüksek (60 fps)", "فائق (60 fps)", "Très élevé (60 fps)", "Sehr hoch (60 fps)", "Muy alto (60 fps)", "बहुत उच्च (60 fps)"), g.fpsMode == QualityFpsMode::SUPER_60)) {
+	                applyFpsMode(QualityFpsMode::SUPER_60);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            ImGui::EndMenu();
+	        }
 
-        // 3) Quality > (requested as texture quality radio submenu)
-        ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(FLT_MAX, FLT_MAX));
-        if (ImGui::BeginMenu("Quality")) {
-            if (ImGui::RadioButton("Düşük (256x256)", g.textureQuality == TextureQuality::Q256)) {
-                applyTextureQuality(TextureQuality::Q256);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Orta (512x512)", g.textureQuality == TextureQuality::Q512)) {
-                applyTextureQuality(TextureQuality::Q512);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Yüksek (1024x1024)", g.textureQuality == TextureQuality::Q1024)) {
-                applyTextureQuality(TextureQuality::Q1024);
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::RadioButton("Super high (2048x2048)", g.textureQuality == TextureQuality::Q2048)) {
-                applyTextureQuality(TextureQuality::Q2048);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndMenu();
-        }
+	        // 3) Quality > (requested as texture quality radio submenu)
+	        ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(FLT_MAX, FLT_MAX));
+	        if (ImGui::BeginMenu(L7("Quality", "Kalite", "الجودة", "Qualité", "Qualität", "Calidad", "गुणवत्ता"))) {
+	            if (ImGui::RadioButton(L7("Low (256x256)", "Düşük (256x256)", "منخفض (256×256)", "Faible (256×256)", "Niedrig (256×256)", "Bajo (256×256)", "कम (256×256)"), g.textureQuality == TextureQuality::Q256)) {
+	                applyTextureQuality(TextureQuality::Q256);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("Medium (512x512)", "Orta (512x512)", "متوسط (512×512)", "Moyen (512×512)", "Mittel (512×512)", "Medio (512×512)", "मध्यम (512×512)"), g.textureQuality == TextureQuality::Q512)) {
+	                applyTextureQuality(TextureQuality::Q512);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("High (1024x1024)", "Yüksek (1024x1024)", "مرتفع (1024×1024)", "Élevé (1024×1024)", "Hoch (1024×1024)", "Alto (1024×1024)", "उच्च (1024×1024)"), g.textureQuality == TextureQuality::Q1024)) {
+	                applyTextureQuality(TextureQuality::Q1024);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            if (ImGui::RadioButton(L7("Super high (2048x2048)", "Süper yüksek (2048x2048)", "فائق (2048×2048)", "Très élevé (2048×2048)", "Sehr hoch (2048×2048)", "Muy alto (2048×2048)", "बहुत उच्च (2048×2048)"), g.textureQuality == TextureQuality::Q2048)) {
+	                applyTextureQuality(TextureQuality::Q2048);
+	                ImGui::CloseCurrentPopup();
+	            }
+	            ImGui::EndMenu();
+	        }
 
-        // 4) Görselleştirmeleri seç...
-        if (ImGui::MenuItem("Görselleştirmeleri seç...")) {
-            g.showPresetPicker = true;
-        }
+	        // 4) Görselleştirmeleri seç...
+	        if (ImGui::MenuItem(L7("Select visualizations...", "Görselleştirmeleri seç...", "اختر المرئيات...", "Sélectionner des visuels...", "Visuals auswählen...", "Seleccionar visuales...", "विज़ुअल चुनें..."))) {
+	            g.showPresetPicker = true;
+	        }
 
         ImGui::Separator();
 
-        // 5) Görselleştirmeyi kapat
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.25f, 0.20f, 1.0f));
-        if (ImGui::MenuItem("Görselleştirmeyi kapat", nullptr)) {
-            g.running = false;
-        }
-        ImGui::PopStyleColor();
+	        // 5) Görselleştirmeyi kapat
+	        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.25f, 0.20f, 1.0f));
+	        if (ImGui::MenuItem(L7("Close visualization", "Görselleştirmeyi kapat", "إغلاق المرئيات", "Fermer le visualiseur", "Visualizer schließen", "Cerrar visualizador", "विज़ुअलाइज़र बंद करें"), nullptr)) {
+	            g.running = false;
+	        }
+	        ImGui::PopStyleColor();
 
 }
 
@@ -932,13 +1071,24 @@ static void drawPresetPicker() {
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("##AurivoPickerRoot", nullptr, rootFlags);
 
-    // Avoid duplicating the OS window title by repeating it inside the client area.
-    ImGui::TextDisabled("Otomatik geçiş için görselleri işaretleyin");
-    ImGui::Separator();
+	    // Avoid duplicating the OS window title by repeating it inside the client area.
+	    ImGui::TextDisabled(L7(
+	        "Select visuals for auto-switch",
+	        "Otomatik geçiş için görselleri işaretleyin",
+	        "حدّد المرئيات للتبديل التلقائي",
+	        "Sélectionnez des visuels pour le changement automatique",
+	        "Visuals für automatischen Wechsel auswählen",
+	        "Selecciona visuales para cambio automático",
+	        "ऑटो-स्विच के लिए विज़ुअल चुनें"
+	    ));
+	    ImGui::Separator();
 
-    ImGui::Text("Preset dizini:");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d preset)", (int)g.presets.size());
+	    ImGui::TextUnformatted(L7("Preset directory:", "Preset dizini:", "مجلد الإعدادات المسبقة:", "Dossier des préréglages :", "Preset-Ordner:", "Carpeta de presets:", "प्रीसेट फ़ोल्डर:"));
+	    ImGui::SameLine();
+	    ImGui::TextDisabled(
+	        L7("(%d presets)", "(%d preset)", "(%d إعدادات)", "(%d préréglages)", "(%d Presets)", "(%d preajustes)", "(%d प्रीसेट)"),
+	        (int)g.presets.size()
+	    );
 
     // Keyboard navigation (Up/Down moves the same blue selection you get with mouse click)
     if (ImGui::IsWindowAppearing()) {
@@ -968,12 +1118,12 @@ static void drawPresetPicker() {
 
     // Delay control: thin "time bar" style.
     const float scale = (g.pickerWindow ? g.pickerDpiScale : g.dpiScale);
-    {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const char* label = "Gecikme (sn)";
-        float labelW = ImGui::CalcTextSize(label).x;
-        float availW = ImGui::GetContentRegionAvail().x;
-        float gap = std::max(10.0f, 14.0f * scale);
+	    {
+	        ImDrawList* dl = ImGui::GetWindowDrawList();
+	        const char* label = L7("Delay (s)", "Gecikme (sn)", "التأخير (ث)", "Délai (s)", "Verzögerung (s)", "Retraso (s)", "देरी (s)");
+	        float labelW = ImGui::CalcTextSize(label).x;
+	        float availW = ImGui::GetContentRegionAvail().x;
+	        float gap = std::max(10.0f, 14.0f * scale);
 
         float barW = std::max(160.0f, availW - labelW - gap);
         float barH = std::max(8.0f, 10.0f * scale);
@@ -1133,9 +1283,17 @@ static void drawPresetPicker() {
                     dl->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(255, 255, 255, 255), std::max(1.5f, 2.2f * scale));
                 }
 
-                if (cbHovered) {
-                    ImGui::SetTooltip("Otomatik geçişe dahil");
-                }
+	                if (cbHovered) {
+	                    ImGui::SetTooltip("%s", L7(
+	                        "Included in auto-switch",
+	                        "Otomatik geçişe dahil",
+	                        "مضمّن في التبديل التلقائي",
+	                        "Inclus dans le changement auto",
+	                        "Im Auto-Wechsel enthalten",
+	                        "Incluido en cambio automático",
+	                        "ऑटो-स्विच में शामिल"
+	                    ));
+	                }
 
                 // Selectable/text hitbox (B) - excludes checkbox region
                 float selX = rowMin.x + padX + cbSize + gap;
@@ -1190,24 +1348,25 @@ static void drawPresetPicker() {
 
     ImGui::Separator();
 
-    // Bottom buttons
-    if (ImGui::Button("Hepsi")) {
-        for (auto& p : g.presets) p.enabled = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Hiçbiri")) {
-        for (auto& p : g.presets) p.enabled = false;
-    }
+	    // Bottom buttons
+	    if (ImGui::Button(L7("All", "Hepsi", "الكل", "Tout", "Alle", "Todo", "सभी"))) {
+	        for (auto& p : g.presets) p.enabled = true;
+	    }
+	    ImGui::SameLine();
+	    if (ImGui::Button(L7("None", "Hiçbiri", "لا شيء", "Aucun", "Keine", "Ninguno", "कोई नहीं"))) {
+	        for (auto& p : g.presets) p.enabled = false;
+	    }
 
-    // Right-align "Tamam"
-    float btnW = ImGui::CalcTextSize("Tamam").x + ImGui::GetStyle().FramePadding.x * 2;
-    float rightX = ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - btnW);
-    rightX = std::max(ImGui::GetCursorPosX(), rightX);
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(rightX);
-    if (ImGui::Button("Tamam")) {
-        g.showPresetPicker = false;
-    }
+	    // Right-align "Tamam"
+	    const char* okText = L7("OK", "Tamam", "موافق", "OK", "OK", "OK", "ठीक");
+	    float btnW = ImGui::CalcTextSize(okText).x + ImGui::GetStyle().FramePadding.x * 2;
+	    float rightX = ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - btnW);
+	    rightX = std::max(ImGui::GetCursorPosX(), rightX);
+	    ImGui::SameLine();
+	    ImGui::SetCursorPosX(rightX);
+	    if (ImGui::Button(okText)) {
+	        g.showPresetPicker = false;
+	    }
 
     ImGui::End();
 }
@@ -1267,11 +1426,19 @@ static bool ensurePickerWindow() {
         desiredH = std::clamp(desiredH, 360, 1080);
     }
 
-    g.pickerWindow = SDL_CreateWindow(
-        "Aurivo Görselleri Seç",
-        wx + ww + 18,
-        wy + 42,
-        desiredW,
+	    g.pickerWindow = SDL_CreateWindow(
+	        L7(
+	            "Select Visuals — Aurivo",
+	            "Aurivo Görselleri Seç",
+	            "اختر المرئيات — Aurivo",
+	            "Sélectionner des visuels — Aurivo",
+	            "Visuals auswählen — Aurivo",
+	            "Seleccionar visuales — Aurivo",
+	            "विज़ुअल चुनें — Aurivo"
+	        ),
+	        wx + ww + 18,
+	        wy + 42,
+	        desiredW,
         desiredH,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
     );
@@ -1412,11 +1579,19 @@ static bool initMainWindowAndGL() {
         desiredH = std::clamp(desiredH, 480, (int)(usable.h * 0.95f));
     }
 
-    g.window = SDL_CreateWindow(
-        "Aurivo Visualizer",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        desiredW,
+	    g.window = SDL_CreateWindow(
+	        L7(
+	            "Aurivo Visualizer",
+	            "Aurivo Görselleştirici",
+	            "مرئيات Aurivo",
+	            "Visualiseur Aurivo",
+	            "Aurivo-Visualizer",
+	            "Visualizador Aurivo",
+	            "Aurivo विज़ुअलाइज़र"
+	        ),
+	        SDL_WINDOWPOS_CENTERED,
+	        SDL_WINDOWPOS_CENTERED,
+	        desiredW,
         desiredH,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
     );

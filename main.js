@@ -1197,7 +1197,9 @@ function startVisualizerFeed() {
 }
 
 function isDevMode() {
-    return process.env.AURIVO_DEV === '1' || process.argv.includes('--dev');
+    // In dev (electron . / npm start), we want to prefer freshly-built native binaries from build-visualizer.
+    // In packaged builds, use native-dist.
+    return !app.isPackaged || process.env.AURIVO_DEV === '1' || process.argv.includes('--dev');
 }
 
 function getProjectMPresetsPath() {
@@ -1258,15 +1260,17 @@ function startVisualizer() {
 
     const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
 
-    const env = {
-        ...process.env,
-        PROJECTM_PRESETS_PATH: presetsPath,
-        AURIVO_VISUALIZER_ICON: visualizerIconPath,
-        // Default main window size (user can resize; next open returns to this default).
-        AURIVO_VIS_MAIN_W: process.env.AURIVO_VIS_MAIN_W || '900',
-        AURIVO_VIS_MAIN_H: process.env.AURIVO_VIS_MAIN_H || '650',
-        // SDL2 için gerekli display variables (Wayland öncelikli)
-        DISPLAY: process.env.DISPLAY || '',
+	    const env = {
+	        ...process.env,
+	        PROJECTM_PRESETS_PATH: presetsPath,
+	        AURIVO_VISUALIZER_ICON: visualizerIconPath,
+	        // UI language for the native visualizer (SDL2/ImGui)
+	        AURIVO_LANG: getUiLanguageSync(),
+	        // Default main window size (user can resize; next open returns to this default).
+	        AURIVO_VIS_MAIN_W: process.env.AURIVO_VIS_MAIN_W || '900',
+	        AURIVO_VIS_MAIN_H: process.env.AURIVO_VIS_MAIN_H || '650',
+	        // SDL2 için gerekli display variables (Wayland öncelikli)
+	        DISPLAY: process.env.DISPLAY || '',
         WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || '',
         XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE || 'wayland',
         // Wayland native için
@@ -1387,8 +1391,16 @@ ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
 // ============================================
 ipcMain.handle('app:relaunch', async () => {
     try {
+        // Ensure detached native processes (e.g. visualizer) don't survive relaunch.
+        stopVisualizer();
+
         app.relaunch();
-        app.exit(0);
+        // Prefer graceful quit so before-quit handlers run.
+        app.quit();
+        // Safety net: force exit if something blocks quitting.
+        setTimeout(() => {
+            try { app.exit(0); } catch { }
+        }, 900);
         return true;
     } catch (e) {
         console.error('[APP] relaunch failed:', e);

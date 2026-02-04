@@ -681,6 +681,7 @@ function setupEventListeners() {
     // Seek - tek tıkla pozisyon ayarlama
     elements.seekSlider.addEventListener('input', handleSeek);
     elements.seekSlider.addEventListener('click', handleSeekClick);
+    elements.seekSlider.addEventListener('wheel', handleSeekWheel, { passive: false });
 
     // Volume slider - tek tıkla ayarlama
     elements.volumeSlider.addEventListener('click', handleVolumeClick);
@@ -4820,8 +4821,13 @@ async function handleSeek() {
 // Seek slider'a tek tıklamayla pozisyon ayarlama
 async function handleSeekClick(e) {
     const rect = elements.seekSlider.getBoundingClientRect();
+    const isRtl = document?.documentElement?.dir === 'rtl' || document?.body?.classList?.contains?.('rtl');
     const clickX = e.clientX - rect.left;
-    const percent = clickX / rect.width;
+    let percent = clickX / rect.width;
+    if (isRtl) {
+        percent = (rect.right - e.clientX) / rect.width;
+    }
+    percent = Math.max(0, Math.min(1, percent));
 
     if (state.activeMedia === 'video') {
         // Video için seek
@@ -4853,6 +4859,13 @@ async function handleSeekClick(e) {
             updateRainbowSlider(elements.seekSlider, percent * 100);
         }
     }
+}
+
+function handleSeekWheel(e) {
+    // Mouse wheel seek: ±10 seconds
+    e.preventDefault();
+    const deltaSeconds = e.deltaY < 0 ? 10 : -10; // wheel up = forward
+    seekBy(deltaSeconds);
 }
 
 function updateTimeDisplay() {
