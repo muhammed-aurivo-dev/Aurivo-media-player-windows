@@ -6,6 +6,7 @@
 // ============================================================
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cctype>
@@ -60,6 +61,295 @@ static std::string toLowerAscii(std::string s) {
     return s;
 }
 
+static void utf8Append(std::string& out, uint32_t cp) {
+    if (cp <= 0x7F) {
+        out.push_back((char)cp);
+    } else if (cp <= 0x7FF) {
+        out.push_back((char)(0xC0 | ((cp >> 6) & 0x1F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else if (cp <= 0xFFFF) {
+        out.push_back((char)(0xE0 | ((cp >> 12) & 0x0F)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back((char)(0xF0 | ((cp >> 18) & 0x07)));
+        out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    }
+}
+
+static bool utf8DecodeOne(const char* s, size_t len, size_t& i, uint32_t& outCp) {
+    if (i >= len) return false;
+    const unsigned char c0 = (unsigned char)s[i];
+    if (c0 < 0x80) {
+        outCp = c0;
+        i += 1;
+        return true;
+    }
+    if ((c0 & 0xE0) == 0xC0 && i + 1 < len) {
+        const unsigned char c1 = (unsigned char)s[i + 1];
+        if ((c1 & 0xC0) != 0x80) { i += 1; outCp = 0xFFFD; return true; }
+        outCp = ((uint32_t)(c0 & 0x1F) << 6) | (uint32_t)(c1 & 0x3F);
+        i += 2;
+        return true;
+    }
+    if ((c0 & 0xF0) == 0xE0 && i + 2 < len) {
+        const unsigned char c1 = (unsigned char)s[i + 1];
+        const unsigned char c2 = (unsigned char)s[i + 2];
+        if (((c1 & 0xC0) != 0x80) || ((c2 & 0xC0) != 0x80)) { i += 1; outCp = 0xFFFD; return true; }
+        outCp = ((uint32_t)(c0 & 0x0F) << 12) | ((uint32_t)(c1 & 0x3F) << 6) | (uint32_t)(c2 & 0x3F);
+        i += 3;
+        return true;
+    }
+    if ((c0 & 0xF8) == 0xF0 && i + 3 < len) {
+        const unsigned char c1 = (unsigned char)s[i + 1];
+        const unsigned char c2 = (unsigned char)s[i + 2];
+        const unsigned char c3 = (unsigned char)s[i + 3];
+        if (((c1 & 0xC0) != 0x80) || ((c2 & 0xC0) != 0x80) || ((c3 & 0xC0) != 0x80)) { i += 1; outCp = 0xFFFD; return true; }
+        outCp = ((uint32_t)(c0 & 0x07) << 18) | ((uint32_t)(c1 & 0x3F) << 12) | ((uint32_t)(c2 & 0x3F) << 6) | (uint32_t)(c3 & 0x3F);
+        i += 4;
+        return true;
+    }
+    i += 1;
+    outCp = 0xFFFD;
+    return true;
+}
+
+static bool isArabicDiacritic(uint32_t cp) {
+    return (cp >= 0x064B && cp <= 0x065F) || cp == 0x0670 || (cp >= 0x06D6 && cp <= 0x06ED);
+}
+
+static bool isArabicJoinCandidate(uint32_t cp) {
+    // Arabic letters (basic + extended) and the presentation forms we generate later.
+    if (cp >= 0x0600 && cp <= 0x06FF) return true;
+    if (cp >= 0x0750 && cp <= 0x077F) return true;
+    if (cp >= 0x08A0 && cp <= 0x08FF) return true;
+    return false;
+}
+
+enum class ArabicJoinType { NONE, RIGHT, DUAL };
+
+static ArabicJoinType arabicJoinType(uint32_t cp) {
+    // Non-joining / transparent marks
+    if (!isArabicJoinCandidate(cp) || isArabicDiacritic(cp)) return ArabicJoinType::NONE;
+
+    // Right-joining (connects to previous only)
+    switch (cp) {
+        case 0x0622: // آ
+        case 0x0623: // أ
+        case 0x0624: // ؤ
+        case 0x0625: // إ
+        case 0x0627: // ا
+        case 0x0629: // ة
+        case 0x062F: // د
+        case 0x0630: // ذ
+        case 0x0631: // ر
+        case 0x0632: // ز
+        case 0x0648: // و
+        case 0x0649: // ى
+            return ArabicJoinType::RIGHT;
+        default:
+            break;
+    }
+
+    // Dual-joining for most other letters in our UI text
+    if ((cp >= 0x0626 && cp <= 0x0647) || cp == 0x064A) return ArabicJoinType::DUAL;
+    return ArabicJoinType::NONE;
+}
+
+struct ArabicForms {
+    uint32_t isolated = 0;
+    uint32_t finalForm = 0;
+    uint32_t initial = 0;
+    uint32_t medial = 0;
+};
+
+static const ArabicForms* arabicForms(uint32_t cp) {
+    // Minimal mapping table for UI strings (Arabic Presentation Forms-B).
+    static const std::pair<uint32_t, ArabicForms> table[] = {
+        {0x0622, {0xFE81, 0xFE82, 0, 0}}, // آ
+        {0x0623, {0xFE83, 0xFE84, 0, 0}}, // أ
+        {0x0624, {0xFE85, 0xFE86, 0, 0}}, // ؤ
+        {0x0625, {0xFE87, 0xFE88, 0, 0}}, // إ
+        {0x0626, {0xFE89, 0xFE8A, 0xFE8B, 0xFE8C}}, // ئ
+        {0x0627, {0xFE8D, 0xFE8E, 0, 0}}, // ا
+        {0x0628, {0xFE8F, 0xFE90, 0xFE91, 0xFE92}}, // ب
+        {0x0629, {0xFE93, 0xFE94, 0, 0}}, // ة
+        {0x062A, {0xFE95, 0xFE96, 0xFE97, 0xFE98}}, // ت
+        {0x062B, {0xFE99, 0xFE9A, 0xFE9B, 0xFE9C}}, // ث
+        {0x062C, {0xFE9D, 0xFE9E, 0xFE9F, 0xFEA0}}, // ج
+        {0x062D, {0xFEA1, 0xFEA2, 0xFEA3, 0xFEA4}}, // ح
+        {0x062E, {0xFEA5, 0xFEA6, 0xFEA7, 0xFEA8}}, // خ
+        {0x062F, {0xFEA9, 0xFEAA, 0, 0}}, // د
+        {0x0630, {0xFEAB, 0xFEAC, 0, 0}}, // ذ
+        {0x0631, {0xFEAD, 0xFEAE, 0, 0}}, // ر
+        {0x0632, {0xFEAF, 0xFEB0, 0, 0}}, // ز
+        {0x0633, {0xFEB1, 0xFEB2, 0xFEB3, 0xFEB4}}, // س
+        {0x0634, {0xFEB5, 0xFEB6, 0xFEB7, 0xFEB8}}, // ش
+        {0x0635, {0xFEB9, 0xFEBA, 0xFEBB, 0xFEBC}}, // ص
+        {0x0636, {0xFEBD, 0xFEBE, 0xFEBF, 0xFEC0}}, // ض
+        {0x0637, {0xFEC1, 0xFEC2, 0xFEC3, 0xFEC4}}, // ط
+        {0x0638, {0xFEC5, 0xFEC6, 0xFEC7, 0xFEC8}}, // ظ
+        {0x0639, {0xFEC9, 0xFECA, 0xFECB, 0xFECC}}, // ع
+        {0x063A, {0xFECD, 0xFECE, 0xFECF, 0xFED0}}, // غ
+        {0x0641, {0xFED1, 0xFED2, 0xFED3, 0xFED4}}, // ف
+        {0x0642, {0xFED5, 0xFED6, 0xFED7, 0xFED8}}, // ق
+        {0x0643, {0xFED9, 0xFEDA, 0xFEDB, 0xFEDC}}, // ك
+        {0x0644, {0xFEDD, 0xFEDE, 0xFEDF, 0xFEE0}}, // ل
+        {0x0645, {0xFEE1, 0xFEE2, 0xFEE3, 0xFEE4}}, // م
+        {0x0646, {0xFEE5, 0xFEE6, 0xFEE7, 0xFEE8}}, // ن
+        {0x0647, {0xFEE9, 0xFEEA, 0xFEEB, 0xFEEC}}, // ه
+        {0x0648, {0xFEED, 0xFEEE, 0, 0}}, // و
+        {0x0649, {0xFEEF, 0xFEF0, 0, 0}}, // ى
+        {0x064A, {0xFEF1, 0xFEF2, 0xFEF3, 0xFEF4}}, // ي
+    };
+
+    for (const auto& [k, v] : table) {
+        if (k == cp) return &v;
+    }
+    return nullptr;
+}
+
+static bool isLamAlef(uint32_t next, uint32_t& outIso, uint32_t& outFinal) {
+    // Lam-alef ligatures (Arabic Presentation Forms-A).
+    switch (next) {
+        case 0x0622: outIso = 0xFEF5; outFinal = 0xFEF6; return true; // لآ
+        case 0x0623: outIso = 0xFEF7; outFinal = 0xFEF8; return true; // لأ
+        case 0x0625: outIso = 0xFEF9; outFinal = 0xFEFA; return true; // لإ
+        case 0x0627: outIso = 0xFEFB; outFinal = 0xFEFC; return true; // لا
+        default: return false;
+    }
+}
+
+static std::string rtlizeArabicText(const char* utf8) {
+    if (!utf8 || !*utf8) return "";
+    const size_t len = std::strlen(utf8);
+
+    std::vector<uint32_t> cps;
+    cps.reserve(len);
+    for (size_t i = 0; i < len;) {
+        uint32_t cp = 0;
+        if (!utf8DecodeOne(utf8, len, i, cp)) break;
+        if (isArabicDiacritic(cp)) continue; // drop diacritics for clarity in this simple shaper
+        cps.push_back(cp);
+    }
+
+    // Shape to presentation forms (very small subset, enough for our UI labels)
+    std::vector<uint32_t> shaped;
+    shaped.reserve(cps.size());
+
+    auto prevJoinType = [&](int idx) -> ArabicJoinType {
+        for (int j = idx; j >= 0; j--) {
+            if (isArabicDiacritic(cps[j])) continue;
+            return arabicJoinType(cps[j]);
+        }
+        return ArabicJoinType::NONE;
+    };
+
+    for (size_t idx = 0; idx < cps.size(); idx++) {
+        const uint32_t cp = cps[idx];
+
+        // Lam-alef ligature handling
+        if (cp == 0x0644 && idx + 1 < cps.size()) {
+            uint32_t iso = 0, fin = 0;
+            if (isLamAlef(cps[idx + 1], iso, fin)) {
+                const ArabicJoinType pj = prevJoinType((int)idx - 1);
+                const bool connectsPrev = (pj == ArabicJoinType::DUAL || pj == ArabicJoinType::RIGHT);
+                shaped.push_back(connectsPrev ? fin : iso);
+                idx += 1; // consume next
+                continue;
+            }
+        }
+
+        const ArabicForms* forms = arabicForms(cp);
+        const ArabicJoinType curType = arabicJoinType(cp);
+        if (!forms || curType == ArabicJoinType::NONE) {
+            shaped.push_back(cp);
+            continue;
+        }
+
+        // Find previous meaningful character
+        int prev = (int)idx - 1;
+        while (prev >= 0 && isArabicDiacritic(cps[(size_t)prev])) prev--;
+        // Find next meaningful character
+        int next = (int)idx + 1;
+        while (next < (int)cps.size() && isArabicDiacritic(cps[(size_t)next])) next++;
+
+        ArabicJoinType prevType = (prev >= 0) ? arabicJoinType(cps[(size_t)prev]) : ArabicJoinType::NONE;
+        ArabicJoinType nextType = (next < (int)cps.size()) ? arabicJoinType(cps[(size_t)next]) : ArabicJoinType::NONE;
+
+        const bool prevConnectsNext = (prevType == ArabicJoinType::DUAL);
+        const bool curConnectsPrev = (curType == ArabicJoinType::DUAL || curType == ArabicJoinType::RIGHT);
+        const bool curConnectsNext = (curType == ArabicJoinType::DUAL);
+        const bool nextConnectsPrev = (nextType == ArabicJoinType::DUAL || nextType == ArabicJoinType::RIGHT);
+
+        const bool joinPrev = prevConnectsNext && curConnectsPrev;
+        const bool joinNext = curConnectsNext && nextConnectsPrev;
+
+        uint32_t out = forms->isolated;
+        if (joinPrev && joinNext && forms->medial) out = forms->medial;
+        else if (joinPrev && forms->finalForm) out = forms->finalForm;
+        else if (joinNext && forms->initial) out = forms->initial;
+        else out = forms->isolated;
+
+        shaped.push_back(out);
+    }
+
+    // Reverse for LTR renderer (approximate RTL)
+    std::reverse(shaped.begin(), shaped.end());
+
+    auto isLtrRunCp = [](uint32_t cp) -> bool {
+        // ASCII alnum
+        if (cp < 128) return std::isalnum((unsigned char)cp) != 0;
+        // Arabic-Indic digits
+        if (cp >= 0x0660 && cp <= 0x0669) return true;
+        if (cp >= 0x06F0 && cp <= 0x06F9) return true;
+        // Common math symbol we use in labels
+        if (cp == 0x00D7) return true; // ×
+        return false;
+    };
+
+    auto swapBracket = [](uint32_t& cp) {
+        switch (cp) {
+            case '(': cp = ')'; break;
+            case ')': cp = '('; break;
+            case '[': cp = ']'; break;
+            case ']': cp = '['; break;
+            case '{': cp = '}'; break;
+            case '}': cp = '{'; break;
+            case '<': cp = '>'; break;
+            case '>': cp = '<'; break;
+            default: break;
+        }
+    };
+
+    for (auto& cp : shaped) swapBracket(cp);
+
+    // Reverse LTR runs (numbers/latin) back so they read correctly inside RTL text.
+    for (size_t i = 0; i < shaped.size();) {
+        if (!isLtrRunCp(shaped[i])) { i++; continue; }
+        size_t j = i + 1;
+        while (j < shaped.size() && isLtrRunCp(shaped[j])) j++;
+        std::reverse(shaped.begin() + (ptrdiff_t)i, shaped.begin() + (ptrdiff_t)j);
+        i = j;
+    }
+
+    std::string out;
+    out.reserve(len + 8);
+    for (uint32_t cp : shaped) utf8Append(out, cp);
+    return out;
+}
+
+static const char* rtlCacheArabic(const char* s) {
+    static thread_local std::array<std::string, 64> ring;
+    static thread_local size_t idx = 0;
+    ring[idx] = rtlizeArabicText(s);
+    const char* out = ring[idx].c_str();
+    idx = (idx + 1) % ring.size();
+    return out;
+}
+
 static UiLang detectUiLang() {
     static std::optional<UiLang> cached;
     if (cached) return *cached;
@@ -89,6 +379,19 @@ static UiLang detectUiLang() {
 }
 
 static const char* L7(const char* en, const char* tr, const char* ar, const char* fr, const char* de, const char* es, const char* hi) {
+    switch (detectUiLang()) {
+        case UiLang::TR: return tr;
+        case UiLang::AR: return rtlCacheArabic(ar);
+        case UiLang::FR: return fr;
+        case UiLang::DE: return de;
+        case UiLang::ES: return es;
+        case UiLang::HI: return hi;
+        case UiLang::EN:
+        default: return en;
+    }
+}
+
+static const char* L7Raw(const char* en, const char* tr, const char* ar, const char* fr, const char* de, const char* es, const char* hi) {
     switch (detectUiLang()) {
         case UiLang::TR: return tr;
         case UiLang::AR: return ar;
@@ -863,8 +1166,12 @@ static void reloadFontsForScale(float scale) {
 	    cfg.PixelSnapH = true;
 	    cfg.RasterizerMultiply = 1.15f; // a bit bolder for readability
 
-	    const float basePx = 18.0f;
-	    const float fontPx = std::max(14.0f, std::floor(basePx * scale));
+	    // Default font size: keep consistent with the rest of the app.
+	    // Arabic text tends to be less readable at small sizes in this UI, so bump it only for Arabic.
+	    const bool isArabicUi = (detectUiLang() == UiLang::AR);
+	    const float basePx = isArabicUi ? 22.0f : 18.0f;
+	    const float minPx = isArabicUi ? 16.0f : 14.0f;
+	    const float fontPx = std::max(minPx, std::floor(basePx * scale));
 
 	    ImFont* font = io.Fonts->AddFontFromFileTTF(g.fontPath.c_str(), fontPx, &cfg, glyphRanges.Data);
 	    if (!font) {
@@ -960,63 +1267,63 @@ static std::string truncateToFit(const std::string& text, float maxWidth, bool* 
 
 static void renderContextMenuContents() {
 	        // 1) Tam ekran göster/gizle
-	        if (ImGui::MenuItem(
-	                L7("Toggle fullscreen", "Tam ekran göster/gizle", "عرض/إخفاء ملء الشاشة", "Basculer plein écran", "Vollbild umschalten", "Alternar pantalla completa", "फुलस्क्रीन टॉगल करें"),
-	                "F",
-	                g.fullscreen
-	            )) {
+		        if (ImGui::MenuItem(
+		                L7("Toggle fullscreen", "Tam ekran göster/gizle", "تبديل ملء الشاشة", "Basculer plein écran", "Vollbild umschalten", "Alternar pantalla completa", "फुलस्क्रीन टॉगल करें"),
+		                "F",
+		                g.fullscreen
+		            )) {
 	            g.fullscreen = !g.fullscreen;
 	            SDL_SetWindowFullscreen(g.window, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	        }
 
 	        // 2) Kare oranı >  (requested as FPS radio submenu)
-	        ImGui::SetNextWindowSizeConstraints(ImVec2(220, 0), ImVec2(FLT_MAX, FLT_MAX));
-	        if (ImGui::BeginMenu(L7("Frame rate", "Kare oranı", "معدل الإطارات", "Fréquence d’images", "Bildrate", "Velocidad de fotogramas", "फ़्रेम दर"))) {
-	            if (ImGui::RadioButton(L7("Low (15 fps)", "Düşük (15 fps)", "منخفض (15 fps)", "Faible (15 fps)", "Niedrig (15 fps)", "Bajo (15 fps)", "कम (15 fps)"), g.fpsMode == QualityFpsMode::LOW_15)) {
-	                applyFpsMode(QualityFpsMode::LOW_15);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("Medium (25 fps)", "Orta (25 fps)", "متوسط (25 fps)", "Moyen (25 fps)", "Mittel (25 fps)", "Medio (25 fps)", "मध्यम (25 fps)"), g.fpsMode == QualityFpsMode::MID_25)) {
-	                applyFpsMode(QualityFpsMode::MID_25);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("High (35 fps)", "Yüksek (35 fps)", "مرتفع (35 fps)", "Élevé (35 fps)", "Hoch (35 fps)", "Alto (35 fps)", "उच्च (35 fps)"), g.fpsMode == QualityFpsMode::HIGH_35)) {
-	                applyFpsMode(QualityFpsMode::HIGH_35);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("Super high (60 fps)", "Süper yüksek (60 fps)", "فائق (60 fps)", "Très élevé (60 fps)", "Sehr hoch (60 fps)", "Muy alto (60 fps)", "बहुत उच्च (60 fps)"), g.fpsMode == QualityFpsMode::SUPER_60)) {
-	                applyFpsMode(QualityFpsMode::SUPER_60);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            ImGui::EndMenu();
-	        }
+		        ImGui::SetNextWindowSizeConstraints(ImVec2(220, 0), ImVec2(FLT_MAX, FLT_MAX));
+		        if (ImGui::BeginMenu(L7("Frame rate", "Kare oranı", "معدل الإطارات", "Fréquence d’images", "Bildrate", "Velocidad de fotogramas", "फ़्रेम दर"))) {
+		            if (ImGui::RadioButton(L7("Low (15 fps)", "Düşük (15 fps)", "منخفض (١٥)", "Faible (15 fps)", "Niedrig (15 fps)", "Bajo (15 fps)", "कम (15 fps)"), g.fpsMode == QualityFpsMode::LOW_15)) {
+		                applyFpsMode(QualityFpsMode::LOW_15);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("Medium (25 fps)", "Orta (25 fps)", "متوسط (٢٥)", "Moyen (25 fps)", "Mittel (25 fps)", "Medio (25 fps)", "मध्यम (25 fps)"), g.fpsMode == QualityFpsMode::MID_25)) {
+		                applyFpsMode(QualityFpsMode::MID_25);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("High (35 fps)", "Yüksek (35 fps)", "مرتفع (٣٥)", "Élevé (35 fps)", "Hoch (35 fps)", "Alto (35 fps)", "उच्च (35 fps)"), g.fpsMode == QualityFpsMode::HIGH_35)) {
+		                applyFpsMode(QualityFpsMode::HIGH_35);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("Super high (60 fps)", "Süper yüksek (60 fps)", "فائق (٦٠)", "Très élevé (60 fps)", "Sehr hoch (60 fps)", "Muy alto (60 fps)", "बहुत उच्च (60 fps)"), g.fpsMode == QualityFpsMode::SUPER_60)) {
+		                applyFpsMode(QualityFpsMode::SUPER_60);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            ImGui::EndMenu();
+		        }
 
 	        // 3) Quality > (requested as texture quality radio submenu)
-	        ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(FLT_MAX, FLT_MAX));
-	        if (ImGui::BeginMenu(L7("Quality", "Kalite", "الجودة", "Qualité", "Qualität", "Calidad", "गुणवत्ता"))) {
-	            if (ImGui::RadioButton(L7("Low (256x256)", "Düşük (256x256)", "منخفض (256×256)", "Faible (256×256)", "Niedrig (256×256)", "Bajo (256×256)", "कम (256×256)"), g.textureQuality == TextureQuality::Q256)) {
-	                applyTextureQuality(TextureQuality::Q256);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("Medium (512x512)", "Orta (512x512)", "متوسط (512×512)", "Moyen (512×512)", "Mittel (512×512)", "Medio (512×512)", "मध्यम (512×512)"), g.textureQuality == TextureQuality::Q512)) {
-	                applyTextureQuality(TextureQuality::Q512);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("High (1024x1024)", "Yüksek (1024x1024)", "مرتفع (1024×1024)", "Élevé (1024×1024)", "Hoch (1024×1024)", "Alto (1024×1024)", "उच्च (1024×1024)"), g.textureQuality == TextureQuality::Q1024)) {
-	                applyTextureQuality(TextureQuality::Q1024);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            if (ImGui::RadioButton(L7("Super high (2048x2048)", "Süper yüksek (2048x2048)", "فائق (2048×2048)", "Très élevé (2048×2048)", "Sehr hoch (2048×2048)", "Muy alto (2048×2048)", "बहुत उच्च (2048×2048)"), g.textureQuality == TextureQuality::Q2048)) {
-	                applyTextureQuality(TextureQuality::Q2048);
-	                ImGui::CloseCurrentPopup();
-	            }
-	            ImGui::EndMenu();
-	        }
+		        ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(FLT_MAX, FLT_MAX));
+		        if (ImGui::BeginMenu(L7("Quality", "Kalite", "الجودة", "Qualité", "Qualität", "Calidad", "गुणवत्ता"))) {
+		            if (ImGui::RadioButton(L7("Low (256x256)", "Düşük (256x256)", "منخفض (٢٥٦×٢٥٦)", "Faible (256×256)", "Niedrig (256×256)", "Bajo (256×256)", "कम (256×256)"), g.textureQuality == TextureQuality::Q256)) {
+		                applyTextureQuality(TextureQuality::Q256);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("Medium (512x512)", "Orta (512x512)", "متوسط (٥١٢×٥١٢)", "Moyen (512×512)", "Mittel (512×512)", "Medio (512×512)", "मध्यम (512×512)"), g.textureQuality == TextureQuality::Q512)) {
+		                applyTextureQuality(TextureQuality::Q512);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("High (1024x1024)", "Yüksek (1024x1024)", "مرتفع (١٠٢٤×١٠٢٤)", "Élevé (1024×1024)", "Hoch (1024×1024)", "Alto (1024×1024)", "उच्च (1024×1024)"), g.textureQuality == TextureQuality::Q1024)) {
+		                applyTextureQuality(TextureQuality::Q1024);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            if (ImGui::RadioButton(L7("Super high (2048x2048)", "Süper yüksek (2048x2048)", "فائق (٢٠٤٨×٢٠٤٨)", "Très élevé (2048×2048)", "Sehr hoch (2048×2048)", "Muy alto (2048×2048)", "बहुत उच्च (2048×2048)"), g.textureQuality == TextureQuality::Q2048)) {
+		                applyTextureQuality(TextureQuality::Q2048);
+		                ImGui::CloseCurrentPopup();
+		            }
+		            ImGui::EndMenu();
+		        }
 
-	        // 4) Görselleştirmeleri seç...
-	        if (ImGui::MenuItem(L7("Select visualizations...", "Görselleştirmeleri seç...", "اختر المرئيات...", "Sélectionner des visuels...", "Visuals auswählen...", "Seleccionar visuales...", "विज़ुअल चुनें..."))) {
-	            g.showPresetPicker = true;
-	        }
+		        // 4) Görselleştirmeleri seç...
+		        if (ImGui::MenuItem(L7("Select visualizations...", "Görselleştirmeleri seç...", "اختيار المرئيات...", "Sélectionner des visuels...", "Visuals auswählen...", "Seleccionar visuales...", "विज़ुअल चुनें..."))) {
+		            g.showPresetPicker = true;
+		        }
 
         ImGui::Separator();
 
@@ -1072,18 +1379,18 @@ static void drawPresetPicker() {
     ImGui::Begin("##AurivoPickerRoot", nullptr, rootFlags);
 
 	    // Avoid duplicating the OS window title by repeating it inside the client area.
-	    ImGui::TextDisabled(L7(
-	        "Select visuals for auto-switch",
-	        "Otomatik geçiş için görselleri işaretleyin",
-	        "حدّد المرئيات للتبديل التلقائي",
-	        "Sélectionnez des visuels pour le changement automatique",
-	        "Visuals für automatischen Wechsel auswählen",
-	        "Selecciona visuales para cambio automático",
-	        "ऑटो-स्विच के लिए विज़ुअल चुनें"
-	    ));
+		    ImGui::TextDisabled(L7(
+		        "Select visuals for auto-switch",
+		        "Otomatik geçiş için görselleri işaretleyin",
+		        "حدد المرئيات للتبديل التلقائي",
+		        "Sélectionnez des visuels pour le changement automatique",
+		        "Visuals für automatischen Wechsel auswählen",
+		        "Selecciona visuales para cambio automático",
+		        "ऑटो-स्विच के लिए विज़ुअल चुनें"
+		    ));
 	    ImGui::Separator();
 
-	    ImGui::TextUnformatted(L7("Preset directory:", "Preset dizini:", "مجلد الإعدادات المسبقة:", "Dossier des préréglages :", "Preset-Ordner:", "Carpeta de presets:", "प्रीसेट फ़ोल्डर:"));
+		    ImGui::TextUnformatted(L7("Preset directory:", "Preset dizini:", "مجلد الإعدادات:", "Dossier des préréglages :", "Preset-Ordner:", "Carpeta de presets:", "प्रीसेट फ़ोल्डर:"));
 	    ImGui::SameLine();
 	    ImGui::TextDisabled(
 	        L7("(%d presets)", "(%d preset)", "(%d إعدادات)", "(%d préréglages)", "(%d Presets)", "(%d preajustes)", "(%d प्रीसेट)"),
@@ -1284,15 +1591,15 @@ static void drawPresetPicker() {
                 }
 
 	                if (cbHovered) {
-	                    ImGui::SetTooltip("%s", L7(
-	                        "Included in auto-switch",
-	                        "Otomatik geçişe dahil",
-	                        "مضمّن في التبديل التلقائي",
-	                        "Inclus dans le changement auto",
-	                        "Im Auto-Wechsel enthalten",
-	                        "Incluido en cambio automático",
-	                        "ऑटो-स्विच में शामिल"
-	                    ));
+		                    ImGui::SetTooltip("%s", L7(
+		                        "Included in auto-switch",
+		                        "Otomatik geçişe dahil",
+		                        "مضمن في التبديل التلقائي",
+		                        "Inclus dans le changement auto",
+		                        "Im Auto-Wechsel enthalten",
+		                        "Incluido en cambio automático",
+		                        "ऑटो-स्विच में शामिल"
+		                    ));
 	                }
 
                 // Selectable/text hitbox (B) - excludes checkbox region
@@ -1426,16 +1733,16 @@ static bool ensurePickerWindow() {
         desiredH = std::clamp(desiredH, 360, 1080);
     }
 
-	    g.pickerWindow = SDL_CreateWindow(
-	        L7(
-	            "Select Visuals — Aurivo",
-	            "Aurivo Görselleri Seç",
-	            "اختر المرئيات — Aurivo",
-	            "Sélectionner des visuels — Aurivo",
-	            "Visuals auswählen — Aurivo",
-	            "Seleccionar visuales — Aurivo",
-	            "विज़ुअल चुनें — Aurivo"
-	        ),
+		    g.pickerWindow = SDL_CreateWindow(
+		        L7Raw(
+		            "Select Visuals — Aurivo",
+		            "Aurivo Görselleri Seç",
+		            "اختيار المرئيات — أوريفو",
+		            "Sélectionner des visuels — Aurivo",
+		            "Visuals auswählen — Aurivo",
+		            "Seleccionar visuales — Aurivo",
+		            "विज़ुअल चुनें — Aurivo"
+		        ),
 	        wx + ww + 18,
 	        wy + 42,
 	        desiredW,
@@ -1580,10 +1887,10 @@ static bool initMainWindowAndGL() {
     }
 
 	    g.window = SDL_CreateWindow(
-	        L7(
+	        L7Raw(
 	            "Aurivo Visualizer",
 	            "Aurivo Görselleştirici",
-	            "مرئيات Aurivo",
+	            "مرئيات أوريفو",
 	            "Visualiseur Aurivo",
 	            "Aurivo-Visualizer",
 	            "Visualizador Aurivo",
