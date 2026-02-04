@@ -1291,6 +1291,11 @@ function getVisualizerExecutablePath() {
         ? 'aurivo-projectm-visualizer.exe'
         : 'aurivo-projectm-visualizer';
 
+    // Packaged: always use resources/native-dist (extraResources)
+    if (app.isPackaged) {
+        return path.join(process.resourcesPath, 'native-dist', exeName);
+    }
+
     // Packaged/runtime default: resources/native-dist (via extraFiles)
     const distPath = getResourcePath(path.join('native-dist', exeName));
 
@@ -1829,13 +1834,52 @@ ipcMain.handle('download:cancel', async (_event, id) => {
 // Dizin Okuma
 ipcMain.handle('fs:readDirectory', async (event, dirPath) => {
     try {
+        if (!dirPath || typeof dirPath !== 'string') return [];
+
+        // Windows testleri için: kütüphane/kırpma filtreleri bu uzantılara göre çalışıyor.
+        // Not: Bu liste "noktasız" (mp3) tutulur, kontrol `toLowerCase()` ile yapılır.
+        const SUPPORTED_MEDIA_EXTENSIONS = new Set([
+            'mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'wma', 'aiff', 'opus',
+            'mp4', 'mkv', 'avi'
+        ]);
+
         const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
-        return items.map(item => ({
-            name: item.name,
-            path: path.join(dirPath, item.name),
-            isDirectory: item.isDirectory(),
-            isFile: item.isFile()
+        const results = await Promise.all(items.map(async (item) => {
+            const fullPath = path.join(dirPath, item.name);
+            const ext = path.extname(item.name || '').slice(1).toLowerCase();
+            const isSupportedMedia = !!ext && SUPPORTED_MEDIA_EXTENSIONS.has(ext);
+
+            let isDirectory = item.isDirectory();
+            let isFile = item.isFile();
+
+            // Bazı dosya sistemlerinde d_type "unknown" gelebilir (FUSE/NFS vb.).
+            // Bu durumda stat() ile gerçek türü belirle.
+            if (item.isSymbolicLink?.() || (!isDirectory && !isFile)) {
+                try {
+                    const st = await fs.promises.stat(fullPath);
+                    isDirectory = st.isDirectory();
+                    isFile = st.isFile();
+                } catch {
+                    // ignore
+                }
+            }
+
+            // Ek fallback: tür belirlenemediyse ama desteklenen uzantıysa dosya kabul et
+            if (!isDirectory && !isFile && isSupportedMedia) {
+                isFile = true;
+            }
+
+            return {
+                name: item.name,
+                path: fullPath,
+                isDirectory,
+                isFile,
+                ext,
+                isSupportedMedia
+            };
         }));
+
+        return results;
     } catch (error) {
         console.error('Directory read error:', error);
         return [];

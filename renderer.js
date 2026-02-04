@@ -3131,6 +3131,14 @@ function addUserFolder(path, name) {
     initializeFileTree();
 
     console.log('Klasör eklendi:', name, path);
+
+    // Kullanıcı klasör seçtiğinde hemen aç (dosyalar görünmez sanılmasın)
+    try {
+        state.mediaFilter = 'audio';
+        Promise.resolve(loadDirectory(path)).catch((e) => console.error('Klasör otomatik açılamadı:', e));
+    } catch (e) {
+        console.error('Klasör otomatik açma hatası:', e);
+    }
 }
 
 // Kullanıcı klasörünü kaldır

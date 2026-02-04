@@ -181,7 +181,7 @@
         },
         {
           "from": "third_party/ffmpeg/ffmpeg.exe",
-          "to": "bin/ffmpeg.exe"
+          "to": "bin"
         }
       ]
     },
