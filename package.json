@@ -11,10 +11,11 @@
     "gen:win:ico": "node scripts/generate-windows-ico.js",
     "rebuild-native": "cd native && npm run rebuild",
     "verify:libs": "node native/verify-libs.js",
+    "prepare:win:resources": "node scripts/prepare-win-resources.js",
     "build": "node native/copy-libs.js && electron-builder",
     "build:linux": "node native/copy-libs.js linux && electron-builder --linux",
-    "build:win": "node native/copy-libs.js win32 && echo '⚠️  Windows ffmpeg binary gerekli: third_party/ffmpeg/ffmpeg.exe' && electron-builder --win",
-    "build:win:zip": "node native/copy-libs.js win32 && echo '⚠️  Windows ffmpeg binary gerekli: third_party/ffmpeg/ffmpeg.exe' && electron-builder --win zip",
+    "build:win": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && electron-builder --win",
+    "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
     "dist": "electron-builder --win --x64"
   },
@@ -149,6 +150,20 @@
       "requestedExecutionLevel": "asInvoker",
       "extraResources": [
         {
+          "from": "bin",
+          "to": "bin",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "native-dist",
+          "to": "native-dist",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
           "from": "icons/aurivo.ico",
           "to": "icons/aurivo.ico"
         },
@@ -165,23 +180,11 @@
           "to": "visualizer-presets"
         },
         {
-          "from": "native-dist",
-          "to": "native-dist",
-          "filter": [
-            "*.exe",
-            "*.dll"
-          ]
-        },
-        {
           "from": "libs/windows",
           "to": "native/build/Release",
           "filter": [
             "*.dll"
           ]
-        },
-        {
-          "from": "third_party/ffmpeg/ffmpeg.exe",
-          "to": "bin"
         }
       ]
     },

@@ -1290,11 +1290,16 @@ function getProjectMPresetsPath() {
 }
 
 function getVisualizerExecutablePath() {
+    // Packaged (Windows): sabit yol
+    if (app.isPackaged && process.platform === 'win32') {
+        return path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe');
+    }
+
     const exeName = process.platform === 'win32'
         ? 'aurivo-projectm-visualizer.exe'
         : 'aurivo-projectm-visualizer';
 
-    // Packaged: always use resources/native-dist (extraResources)
+    // Packaged (Linux/Mac): resources/native-dist (extraResources)
     if (app.isPackaged) {
         return path.join(process.resourcesPath, 'native-dist', exeName);
     }
