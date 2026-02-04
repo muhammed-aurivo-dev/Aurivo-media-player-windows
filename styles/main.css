@@ -45,6 +45,30 @@ body {
     user-select: none;
 }
 
+/* RTL / Arabic readability */
+body.rtl {
+    font-family: "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Kufi Arabic", "Cairo", "Tajawal", "Amiri",
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, Cantarell, Arial, sans-serif;
+    font-weight: 500;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body.rtl * {
+    letter-spacing: normal !important;
+}
+
+body.rtl .panel-title {
+    text-transform: none;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+body.rtl .settings-tab {
+    font-weight: 700;
+}
+
 .hidden {
     display: none !important;
 }
@@ -725,6 +749,20 @@ body {
     /* Filter zaten brightness için uygulanıyor, overlay plane'i engeller */
 }
 
+/* Cinematic lighting overlay (fullscreen) */
+#videoPage.fs-active.fs-cinematic::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(60% 45% at 50% 70%, rgba(64, 196, 255, 0.10), transparent 70%),
+        radial-gradient(45% 35% at 30% 55%, rgba(29, 185, 84, 0.06), transparent 75%),
+        radial-gradient(45% 35% at 70% 55%, rgba(255, 235, 59, 0.05), transparent 75%);
+    mix-blend-mode: screen;
+}
+
 /* Video player native kontrolleri gizle */
 #videoPlayer::-webkit-media-controls {
     display: none !important;
@@ -1075,6 +1113,53 @@ body {
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     animation: settingsMenuSlideUp 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
     transform-origin: bottom right;
+}
+
+/* Fullscreen settings menu - RTL typography fixes (Arabic) */
+body.rtl .video-fs-controls .yt-settings-menu,
+body.rtl .video-fs-controls .yt-settings-submenu {
+    font-family: "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Kufi Arabic", "Cairo", "Tajawal", "Amiri",
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, Cantarell, Arial, sans-serif !important;
+    font-weight: 600;
+    letter-spacing: normal !important;
+    text-rendering: geometricPrecision;
+}
+
+body.rtl .video-fs-controls .yt-settings-menu {
+    background: rgba(18, 18, 18, 0.88) !important;
+    backdrop-filter: blur(18px) saturate(140%);
+}
+
+body.rtl .yt-setting-label {
+    font-size: 15px;
+    font-weight: 650;
+    color: rgba(255, 255, 255, 0.96);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+body.rtl .yt-setting-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(235, 235, 235, 0.85);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+body.rtl .yt-submenu-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: normal !important;
+}
+
+body.rtl .yt-settings-item {
+    min-height: 52px;
+}
+
+body.rtl .yt-setting-content {
+    flex-direction: row-reverse;
+}
+
+body.rtl .yt-setting-value {
+    flex-direction: row-reverse;
 }
 
 /* Normal modda ana menu gizli */
@@ -1693,6 +1778,17 @@ body .yt-settings-submenu,
     height: 22px;
 }
 
+.control-btn img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    opacity: 0.85;
+}
+
+.control-btn:hover img {
+    opacity: 1;
+}
+
 .control-btn:hover {
     color: var(--text-primary);
     background-color: rgba(255, 255, 255, 0.10);
@@ -1892,6 +1988,51 @@ body .yt-settings-submenu,
     color: #000;
 }
 
+html[dir="rtl"] .settings-tab {
+    text-align: right;
+}
+
+.restart-modal {
+    width: min(520px, calc(100vw - 40px));
+    border-radius: 16px;
+    padding: 18px 18px 16px 18px;
+    background: rgba(15, 20, 25, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.restart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.restart-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.restart-body {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.45;
+    padding: 6px 2px 10px 2px;
+}
+
+.restart-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+html[dir="rtl"] .restart-actions {
+    justify-content: flex-start;
+}
+
 .settings-content {
     flex: 1;
     padding: 20px;
@@ -2084,17 +2225,31 @@ body .yt-settings-submenu,
     background-color: #181a1b;
     position: relative;
     resize: none;
-    overflow: hidden;
+    /* Keep inner scroll on .download-body-v2; don't block sticky headers */
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
 }
 
-.download-body-v2 {
-    padding: 18px 20px 16px;
+.download-top-controls {
+    flex: 0 0 auto;
+    padding: 18px 20px 0;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    flex: 1;
-    overflow: hidden;
+    background-color: #181a1b;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.download-body-v2 {
+    padding: 14px 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1 1 auto;
+    overflow: auto;
     min-height: 0;
+    overscroll-behavior: contain;
 }
 
 .download-view-bar {
@@ -2108,7 +2263,7 @@ body .yt-settings-submenu,
     color: rgba(255, 255, 255, 0.85);
     font-weight: 900;
     letter-spacing: 0.3px;
-    font-size: 13px;
+    font-size: 14px;
     text-transform: uppercase;
 }
 
@@ -2123,8 +2278,8 @@ body .yt-settings-submenu,
 }
 
 .download-page {
-    flex: 1;
-    overflow: auto;
+    flex: 0 0 auto;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -2189,6 +2344,8 @@ body .yt-settings-submenu,
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.09);
     height: 54px;
+    position: relative;
+    z-index: 1;
 }
 
 .download-tab-v2 {
@@ -2231,7 +2388,7 @@ body .yt-settings-submenu,
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 15px;
     outline: none;
 }
 
@@ -2304,7 +2461,7 @@ body .yt-settings-submenu,
 .download-card-field-label {
     color: #ffffff;
     font-weight: 800;
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .download-select-v2 {
@@ -2314,8 +2471,13 @@ body .yt-settings-submenu,
     border: 1px solid rgba(255, 255, 255, 0.18);
     background: rgba(0, 0, 0, 0.35);
     color: #ffffff;
-    font-size: 14px;
+    font-size: 18px;
+    line-height: 1.25;
     outline: none;
+}
+
+.download-select-v2 option {
+    font-size: 16px;
 }
 
 .download-audio-grid {
@@ -2331,7 +2493,7 @@ body .yt-settings-submenu,
     gap: 10px;
     margin-top: 10px;
     color: rgba(255, 255, 255, 0.92);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 800;
     user-select: none;
 }
@@ -2365,10 +2527,6 @@ body .yt-settings-submenu,
     font-weight: 900;
     cursor: pointer;
     transition: transform 0.12s ease, filter 0.12s ease;
-}
-
-#downloadStopBtn {
-    display: none !important;
 }
 
 .download-action-primary {

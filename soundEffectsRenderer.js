@@ -201,6 +201,52 @@ function dbgEq(...args) {
     if (DEBUG_EQ) console.log(...args);
 }
 
+function tSync(key, vars) {
+    try {
+        if (window.i18n?.tSync) return window.i18n.tSync(key, vars);
+    } catch {
+        // ignore
+    }
+    return String(key);
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (ch) => {
+        switch (ch) {
+            case '&':
+                return '&amp;';
+            case '<':
+                return '&lt;';
+            case '>':
+                return '&gt;';
+            case '"':
+                return '&quot;';
+            case '\'':
+                return '&#39;';
+            default:
+                return ch;
+        }
+    });
+}
+
+function getLocalizedPresetName(lastPreset) {
+    const filename = String(lastPreset?.filename || '').toLowerCase();
+    const name = String(lastPreset?.name || '');
+
+    const flatKey = 'eqPresets.flatName';
+    const flatLocalized = tSync(flatKey);
+    const hasFlatLocalized = typeof flatLocalized === 'string' && flatLocalized && flatLocalized !== flatKey;
+
+    const looksFlat =
+        filename.includes('flat') ||
+        name.toLowerCase() === 'flat' ||
+        name.toLowerCase().includes('düz') ||
+        name.toLowerCase().includes('duz');
+
+    if (looksFlat && hasFlatLocalized) return flatLocalized;
+    return name || '';
+}
+
 function safeNormalizeEq32Settings(settings) {
     const s = settings || {};
     s.bands = normalize32Bands(s.bands);
@@ -260,6 +306,19 @@ function schedulePersistEq32ToAppSettings(eq32Settings) {
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
     (async () => {
+        try {
+            if (window.i18n?.init) {
+                await window.i18n.init();
+                try {
+                    document.title = await window.i18n.t('sfx.windowTitle');
+                } catch {
+                    // ignore
+                }
+            }
+        } catch {
+            // ignore
+        }
+
         initEffects();
         setupEventListeners();
         setupEQPresetListener();
@@ -359,7 +418,7 @@ function setupEventListeners() {
             const btn = document.getElementById('maximizeBtn');
             if (btn) {
                 btn.textContent = isMaximized ? '❐' : '☐';
-                btn.title = isMaximized ? 'Geri Yükle' : 'Büyüt';
+                btn.title = isMaximized ? tSync('sfx.window.restore') : tSync('sfx.window.maximizeOnly');
             }
         }
     });
@@ -801,7 +860,7 @@ function getEffectTemplate(effectName) {
         bitdither: getBitDitherTemplate()
     };
 
-    return templates[effectName] || '<div class="effect-panel"><p>Bu efekt henüz uygulanmadı.</p></div>';
+    return templates[effectName] || `<div class="effect-panel"><p>${tSync('sfx.ui.notImplemented')}</p></div>`;
 }
 
 // --- 32-Band EQ Template ---
@@ -826,20 +885,20 @@ function getEQ32Template() {
         `;
     });
 
-    return `
-        <div class="effect-panel" id="eq32Panel">
-            <div class="effect-header">
-                <div class="effect-title-section">
-                    <h2 class="effect-title">🎚️ 32-Bandlı Profesyonel Ekolayzır</h2>
-                    <p class="effect-description">Hassas frekans kontrolü ile sesinizi şekillendirin</p>
-                </div>
-                <div class="effect-actions">
-                    <button class="action-btn primary" id="eqPresetsBtn">Hazır Ayarlar</button>
-                    <button class="action-btn danger" id="eqResetBtn">Sıfırla</button>
-                </div>
-            </div>
-            
-            <div class="eq-section" style="position: relative; padding-top: 10px;">
+	    return `
+	        <div class="effect-panel" id="eq32Panel">
+	            <div class="effect-header">
+	                <div class="effect-title-section">
+	                    <h2 class="effect-title">🎚️ ${tSync('sfx.eq32.title')}</h2>
+	                    <p class="effect-description">${tSync('sfx.eq32.description')}</p>
+	                </div>
+	                <div class="effect-actions">
+	                    <button class="action-btn primary" id="eqPresetsBtn">${tSync('sfx.ui.presets')}</button>
+	                    <button class="action-btn danger" id="eqResetBtn">${tSync('sfx.ui.reset')}</button>
+	                </div>
+	            </div>
+	            
+	            <div class="eq-section" style="position: relative; padding-top: 10px;">
                 <!-- Bar Analyzer (Visualizer) -->
                 <div class="visualizer-container" style="height: 80px; margin-bottom: 20px; border-bottom: 1px solid var(--border-light);">
                     <canvas id="barAnalyzerCanvas" style="width: 100%; height: 100%;"></canvas>
@@ -852,14 +911,14 @@ function getEQ32Template() {
                     ${bandsHTML}
                 </div>
             </div>
-            
-            <div class="aurivo-module">
-                <div class="module-panel knobs-panel">
-                    <div class="module-title">Aurivo Modülü</div>
-                    <div class="knobs-container" id="aurivoKnobs">
-                        <div class="knob-wrapper">
-                            <canvas class="aurivo-knob-canvas" id="knobBassCanvas" width="130" height="170"></canvas>
-                        </div>
+	            
+	            <div class="aurivo-module">
+	                <div class="module-panel knobs-panel">
+	                    <div class="module-title">${tSync('sfx.eq32.moduleTitle')}</div>
+	                    <div class="knobs-container" id="aurivoKnobs">
+	                        <div class="knob-wrapper">
+	                            <canvas class="aurivo-knob-canvas" id="knobBassCanvas" width="130" height="170"></canvas>
+	                        </div>
 
                         <div class="knob-wrapper">
                             <canvas class="aurivo-knob-canvas" id="knobMidCanvas" width="130" height="170"></canvas>
@@ -872,26 +931,26 @@ function getEQ32Template() {
                         <div class="knob-wrapper">
                             <canvas class="aurivo-knob-canvas" id="knobStereoCanvas" width="130" height="170"></canvas>
                         </div>
-                    </div>
-                    <div class="module-dropdown">
-                        <label>Akustik Mekan:</label>
-                        <select id="acousticSpace">
-                            <option value="off" ${settings.acousticSpace === 'off' ? 'selected' : ''}>Kapalı</option>
-                            <option value="small" ${settings.acousticSpace === 'small' ? 'selected' : ''}>Küçük Oda</option>
-                            <option value="medium" ${settings.acousticSpace === 'medium' ? 'selected' : ''}>Orta Oda</option>
-                            <option value="large" ${settings.acousticSpace === 'large' ? 'selected' : ''}>Büyük Oda</option>
-                            <option value="hall" ${settings.acousticSpace === 'hall' ? 'selected' : ''}>Konser Salonu</option>
-                        </select>
-                    </div>
-                    <button class="action-btn secondary module-reset-btn" id="moduleResetBtn">Modülü Sıfırla</button>
-                </div>
-                
-                <div class="module-panel balance-panel">
-                    <div class="module-title">Denge (Sol ↔ Sağ)</div>
-                    <div class="balance-container">
-                        <input type="range" class="balance-slider" id="balanceSlider" 
-                               min="-100" max="100" value="${settings.balance}">
-                        <span class="balance-value" id="balanceValue">${getBalanceText(settings.balance)}</span>
+	                    </div>
+	                    <div class="module-dropdown">
+	                        <label>${tSync('sfx.eq32.acousticSpace.label')}</label>
+	                        <select id="acousticSpace">
+	                            <option value="off" ${settings.acousticSpace === 'off' ? 'selected' : ''}>${tSync('sfx.eq32.acousticSpace.off')}</option>
+	                            <option value="small" ${settings.acousticSpace === 'small' ? 'selected' : ''}>${tSync('sfx.eq32.acousticSpace.small')}</option>
+	                            <option value="medium" ${settings.acousticSpace === 'medium' ? 'selected' : ''}>${tSync('sfx.eq32.acousticSpace.medium')}</option>
+	                            <option value="large" ${settings.acousticSpace === 'large' ? 'selected' : ''}>${tSync('sfx.eq32.acousticSpace.large')}</option>
+	                            <option value="hall" ${settings.acousticSpace === 'hall' ? 'selected' : ''}>${tSync('sfx.eq32.acousticSpace.hall')}</option>
+	                        </select>
+	                    </div>
+	                    <button class="action-btn secondary module-reset-btn" id="moduleResetBtn">${tSync('sfx.ui.resetModule')}</button>
+	                </div>
+	                
+	                <div class="module-panel balance-panel">
+	                    <div class="module-title">${tSync('sfx.balance.title')}</div>
+	                    <div class="balance-container">
+	                        <input type="range" class="balance-slider" id="balanceSlider" 
+	                               min="-100" max="100" value="${settings.balance}">
+	                        <span class="balance-value" id="balanceValue">${getBalanceText(settings.balance)}</span>
                     </div>
                 </div>
             </div>
@@ -908,13 +967,13 @@ function getReverbTemplate() {
             <div class="effect-header">
                 <div class="effect-title-section">
                     <h2 class="effect-title">🎵 Reverb (BASS FX)</h2>
-                    <p class="effect-description">BASS_FX_DX8_REVERB efekti ile profesyonel oda simülasyonu</p>
+                    <p class="effect-description">${tSync('sfx.reverb.description')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="reverbEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -974,17 +1033,17 @@ function getReverbTemplate() {
             </div>
             
             <div class="presets-section">
-                <div class="presets-title">📁 Hazır Ayarlar</div>
+                <div class="presets-title">📁 ${tSync('sfx.ui.presets')}</div>
                 <div class="presets-buttons">
-                    <button class="preset-btn" data-preset="smallRoom">🏠 Küçük Oda</button>
-                    <button class="preset-btn" data-preset="largeRoom">🏢 Büyük Oda</button>
-                    <button class="preset-btn" data-preset="concertHall">🎪 Konser Salonu</button>
-                    <button class="preset-btn" data-preset="cathedral">⛪ Katedral</button>
+                    <button class="preset-btn" data-preset="smallRoom">🏠 ${tSync('sfx.reverb.presets.smallRoom')}</button>
+                    <button class="preset-btn" data-preset="largeRoom">🏢 ${tSync('sfx.reverb.presets.largeRoom')}</button>
+                    <button class="preset-btn" data-preset="concertHall">🎪 ${tSync('sfx.reverb.presets.concertHall')}</button>
+                    <button class="preset-btn" data-preset="cathedral">⛪ ${tSync('sfx.reverb.presets.cathedral')}</button>
                 </div>
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="reverbResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="reverbResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -998,14 +1057,14 @@ function getCompressorTemplate() {
         <div class="effect-panel" id="compressorPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🎛️ Dinamik Kompresör</h2>
-                    <p class="effect-description">Ses dinamik aralığını kontrol eder, yüksek sesleri düşürür</p>
+                    <h2 class="effect-title">🎛️ ${tSync('sfx.compressor.title')}</h2>
+                    <p class="effect-description">${tSync('sfx.compressor.description')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="compressorEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1082,7 +1141,7 @@ function getCompressorTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="compressorResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="compressorResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1096,14 +1155,14 @@ function getLimiterTemplate() {
         <div class="effect-panel" id="limiterPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🔒 Limiter</h2>
-                    <p class="effect-description">Maksimum ses seviyesini sınırlar, clipping önler</p>
+                    <h2 class="effect-title">🔒 ${tSync('sfx.effects.limiter')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.limiter')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="limiterEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1156,7 +1215,7 @@ function getLimiterTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="limiterResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="limiterResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1166,21 +1225,21 @@ function getLimiterTemplate() {
 function getBassBoostTemplate() {
     const settings = getSettings('bassboost');
 
-    return `
-        <div class="effect-panel" id="bassboostPanel">
-            <div class="effect-header">
-                <div class="effect-title-section">
-                    <h2 class="effect-title">🔊 Bas Güçlendirici</h2>
-                    <p class="effect-description">Düşük frekansları harmonik olarak zenginleştirir</p>
-                </div>
-                <div class="effect-actions">
-                    <label class="enable-toggle">
-                        <input type="checkbox" id="bassboostEnabled" ${settings.enabled ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
-                    </label>
-                </div>
-            </div>
+	    return `
+	        <div class="effect-panel" id="bassboostPanel">
+	            <div class="effect-header">
+	                <div class="effect-title-section">
+	                    <h2 class="effect-title">🔊 ${tSync('sfx.bassboost.title')}</h2>
+	                    <p class="effect-description">${tSync('sfx.bassboost.description')}</p>
+	                </div>
+	                <div class="effect-actions">
+	                    <label class="enable-toggle">
+	                        <input type="checkbox" id="bassboostEnabled" ${settings.enabled ? 'checked' : ''}>
+	                        <span class="toggle-slider"></span>
+	                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
+	                    </label>
+	                </div>
+	            </div>
             
             <div class="knobs-container">
                 <div class="knob-wrapper">
@@ -1230,12 +1289,12 @@ function getBassBoostTemplate() {
                         data-unit="%"></canvas>
                 </div>
             </div>
-            
-            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="bassboostResetBtn">Sıfırla</button>
-            </div>
-        </div>
-    `;
+	            
+	            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+	                <button class="action-btn danger" id="bassboostResetBtn">${tSync('sfx.ui.reset')}</button>
+	            </div>
+	        </div>
+	    `;
 }
 
 // --- Noise Gate Template ---
@@ -1246,14 +1305,14 @@ function getNoiseGateTemplate() {
         <div class="effect-panel" id="noisegatePanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🎙️ Akıllı Noise Gate</h2>
-                    <p class="effect-description">Belirlenen seviyenin altındaki sesleri keser</p>
+                    <h2 class="effect-title">🎙️ ${tSync('sfx.effects.noisegate')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.noisegate')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="noisegateEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1308,11 +1367,11 @@ function getNoiseGateTemplate() {
             
             <div class="led-indicator">
                 <div class="led" id="gateStatusLed"></div>
-                <span class="led-label">Gate Durumu: <span id="gateStatusText">Kapalı</span></span>
+                <span class="led-label">${tSync('sfx.noisegate.gateStatusLabel')} <span id="gateStatusText">${tSync('sfx.off')}</span></span>
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="noisegateResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="noisegateResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1320,7 +1379,7 @@ function getNoiseGateTemplate() {
 
 // --- Diğer Template'ler (basitleştirilmiş) ---
 function getDeesserTemplate() {
-    return getGenericEffectTemplate('deesser', '🎤 De-esser', 'Sert "s" ve "ş" seslerini yumuşatır', [
+    return getGenericEffectTemplate('deesser', `🎤 ${tSync('sfx.effects.deesser')}`, tSync('sfx.descriptions.deesser'), [
         { id: 'frequency', label: 'Frequency', min: 2000, max: 12000, unit: 'Hz' },
         { id: 'threshold', label: 'Threshold', min: -60, max: 0, unit: 'dB' },
         { id: 'ratio', label: 'Ratio', min: 1, max: 10, unit: ':1' },
@@ -1329,7 +1388,7 @@ function getDeesserTemplate() {
 }
 
 function getExciterTemplate() {
-    return getGenericEffectTemplate('exciter', '✨ Netleştirici (Exciter)', 'Harmonik içerik ekleyerek sesi parlatır', [
+    return getGenericEffectTemplate('exciter', `✨ ${tSync('sfx.effects.exciter')}`, tSync('sfx.descriptions.exciter'), [
         { id: 'frequency', label: 'Frequency', min: 1000, max: 8000, unit: 'Hz' },
         { id: 'amount', label: 'Amount', min: 0, max: 100, unit: '%' },
         { id: 'mix', label: 'Mix', min: 0, max: 100, unit: '%' }
@@ -1337,7 +1396,7 @@ function getExciterTemplate() {
 }
 
 function getStereoWidenerTemplate() {
-    return getGenericEffectTemplate('stereowidener', '🔀 Stereo Widener v2', 'Stereo genişliğini ve derinliğini artırır', [
+    return getGenericEffectTemplate('stereowidener', `🔀 ${tSync('sfx.effects.stereowidener')}`, tSync('sfx.descriptions.stereowidener'), [
         { id: 'width', label: 'Width', min: 0, max: 200, unit: '%' },
         { id: 'centerLevel', label: 'Center Level', min: -12, max: 12, unit: 'dB' },
         { id: 'sideLevel', label: 'Side Level', min: -12, max: 12, unit: 'dB' },
@@ -1346,7 +1405,7 @@ function getStereoWidenerTemplate() {
 }
 
 function getEchoTemplate() {
-    return getGenericEffectTemplate('echo', '🔁 Echo (Yankı)', 'Gecikme tabanlı yankı efekti', [
+    return getGenericEffectTemplate('echo', `🔁 ${tSync('sfx.effects.echo')}`, tSync('sfx.descriptions.echo'), [
         { id: 'delay', label: 'Delay', min: 10, max: 1000, unit: 'ms' },
         { id: 'feedback', label: 'Feedback', min: 0, max: 95, unit: '%' },
         { id: 'wetDry', label: 'Wet/Dry', min: 0, max: 100, unit: '%' },
@@ -1360,14 +1419,14 @@ function getConvReverbTemplate() {
         <div class="effect-panel" id="convreverbPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🎪 Konvolüsyon Reverb (IR)</h2>
-                    <p class="effect-description">Gerçek mekan impulse response'ları ile reverb</p>
+                    <h2 class="effect-title">🎪 ${tSync('sfx.effects.convreverb')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.convreverb')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="convreverbEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1404,7 +1463,7 @@ function getConvReverbTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="convreverbResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="convreverbResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1484,21 +1543,21 @@ function getPEQTemplate() {
         `;
     };
 
-    return `
-        <div class="effect-panel" id="peqPanel">
-            <div class="effect-header">
-                <div class="effect-title-section">
-                    <h2 class="effect-title">📊 Parametrik EQ (6-Band)</h2>
-                    <p class="effect-description">6-band full parametric EQ with filter type selection</p>
-                </div>
-                <div class="effect-actions">
-                    <label class="enable-toggle">
-                        <input type="checkbox" id="peqEnabled" ${settings.enabled ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
-                    </label>
-                </div>
-            </div>
+	    return `
+	        <div class="effect-panel" id="peqPanel">
+	            <div class="effect-header">
+	                <div class="effect-title-section">
+	                    <h2 class="effect-title">📊 Parametrik EQ (6-Band)</h2>
+	                    <p class="effect-description">6-band full parametric EQ with filter type selection</p>
+	                </div>
+	                <div class="effect-actions">
+	                    <label class="enable-toggle">
+	                        <input type="checkbox" id="peqEnabled" ${settings.enabled ? 'checked' : ''}>
+	                        <span class="toggle-slider"></span>
+	                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
+	                    </label>
+	                </div>
+	            </div>
             
             <div class="peq-bands-container" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top: 16px;">
                 ${generateBandKnobs(0, 'Sub-Bass', 20, 200, 60)}
@@ -1509,12 +1568,12 @@ function getPEQTemplate() {
                 ${generateBandKnobs(5, 'High', 5000, 20000, 12000)}
             </div>
 
-            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="peqResetBtn">Sıfırla</button>
-            </div>
-        </div>
-    `;
-}
+	            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+	                <button class="action-btn danger" id="peqResetBtn">${tSync('sfx.ui.reset')}</button>
+	            </div>
+	        </div>
+	    `;
+	}
 
 function getAutoGainTemplate() {
     const settings = getSettings('autogain');
@@ -1522,14 +1581,14 @@ function getAutoGainTemplate() {
         <div class="effect-panel" id="autogainPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">📈 Auto Gain / Normalize</h2>
-                    <p class="effect-description">Otomatik ses seviyesi normalizasyonu</p>
+                    <h2 class="effect-title">📈 ${tSync('sfx.effects.autogain')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.autogain')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="autogainEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1556,7 +1615,7 @@ function getAutoGainTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="autogainResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="autogainResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1569,13 +1628,13 @@ function getTruePeakTemplate() {
             <div class="effect-header">
                 <div class="effect-title-section">
                     <h2 class="effect-title">📏 True Peak Limiter + Meter</h2>
-                    <p class="effect-description">Profesyonel true peak limiter ve stereo metering</p>
+                    <p class="effect-description">${tSync('sfx.descriptions.truepeak')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="truepeakEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1682,7 +1741,7 @@ function getTruePeakTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="truepeakResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="truepeakResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1693,25 +1752,25 @@ function getCrossfeedTemplate() {
     const settings = getSettings('crossfeed');
 
     const presetDescriptions = {
-        0: "🎧 Natural: Doğal hoparlör benzeri stereo deneyim (Önerilen)",
-        1: "🎵 Mild: Hafif crossfeed, minimal yorgunluk azaltma",
-        2: "💪 Strong: Güçlü crossfeed, belirgin hoparlör hissi",
-        3: "🌌 Wide: Geniş sahne, uzamsal his",
-        4: "⚙️ Custom: Manuel ayarlarınız"
+        0: tSync('sfx.crossfeed.presetDescriptions.0'),
+        1: tSync('sfx.crossfeed.presetDescriptions.1'),
+        2: tSync('sfx.crossfeed.presetDescriptions.2'),
+        3: tSync('sfx.crossfeed.presetDescriptions.3'),
+        4: tSync('sfx.crossfeed.presetDescriptions.4')
     };
 
     return `
         <div class="effect-panel" id="crossfeedPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🎧 Crossfeed (Kulaklık İyileştirme)</h2>
-                    <p class="effect-description">Kulaklıkta doğal hoparlör deneyimini simüle eder. Sol kanal hafifçe sağ kulağa, sağ kanal hafifçe sol kulağa çapraz beslenir.</p>
+                    <h2 class="effect-title">🎧 ${tSync('sfx.effects.crossfeed')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.crossfeed')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="crossfeedEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1723,12 +1782,12 @@ function getCrossfeedTemplate() {
                 <canvas id="crossfeed-canvas" width="400" height="200" style="width: 100%; max-width: 400px; display: block; margin: 0 auto;"></canvas>
             </div>
             <div id="crossfeed-status" style="margin-top: -8px; margin-bottom: 12px; color: #888; font-size: 12px;">
-                DSP Durumu: kontrol ediliyor...
+                ${tSync('sfx.crossfeed.statusChecking')}
             </div>
             
             <!-- Preset Selector -->
             <div class="crossfeed-presets" style="margin: 20px 0;">
-                <h3 style="color: #aaa; margin-bottom: 12px; font-size: 14px;">Presetler</h3>
+                <h3 style="color: #aaa; margin-bottom: 12px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="preset-btn ${settings.preset === 0 ? 'active' : ''}" data-preset="0" style="padding: 10px 16px; border: 2px solid ${settings.preset === 0 ? '#00d4ff' : '#444'}; border-radius: 8px; background: ${settings.preset === 0 ? 'rgba(0,212,255,0.2)' : '#1a1a1a'}; color: #fff; cursor: pointer; transition: all 0.2s;">
                         🎧 Natural
@@ -1745,7 +1804,7 @@ function getCrossfeedTemplate() {
                     <button class="preset-btn ${settings.preset === 4 ? 'active' : ''}" data-preset="4" style="padding: 10px 16px; border: 2px solid ${settings.preset === 4 ? '#00d4ff' : '#444'}; border-radius: 8px; background: ${settings.preset === 4 ? 'rgba(0,212,255,0.2)' : '#1a1a1a'}; color: #fff; cursor: pointer; transition: all 0.2s;">
                         ⚙️ Custom
                     </button>
-                    <button class="action-btn danger" id="crossfeedResetBtn" style="margin-left: auto; padding: 10px 16px;">🔄 Sıfırla</button>
+                    <button class="action-btn danger" id="crossfeedResetBtn" style="margin-left: auto; padding: 10px 16px;">🔄 ${tSync('sfx.ui.reset')}</button>
                 </div>
                 <p id="crossfeed-preset-description" style="color: #888; font-size: 12px; margin-top: 10px; padding: 8px; background: rgba(0,212,255,0.05); border-radius: 6px;">
                     ${presetDescriptions[settings.preset]}
@@ -1829,14 +1888,14 @@ function getBassMonoTemplate() {
         <div class="effect-panel" id="bassmonoPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🔉 Bass Mono (Low Frequency Mono)</h2>
-                    <p class="effect-description">Düşük frekansları mono yaparak sahne, kulüp ve vinyl uyumluluğunu artırır.</p>
+                    <h2 class="effect-title">🔉 ${tSync('sfx.effects.bassmono')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.bassmono')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="bassmonoEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -1849,7 +1908,7 @@ function getBassMonoTemplate() {
 
             <!-- Presets -->
             <div class="bass-mono-presets" style="margin-bottom: 20px;">
-                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">Hazır Ayarlar</h3>
+                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="preset-btn" onclick="applyBassMonoPreset('vinyl')">💿 Vinyl Safe</button>
                     <button class="preset-btn" onclick="applyBassMonoPreset('club')">🎧 Club System</button>
@@ -1903,7 +1962,7 @@ function getBassMonoTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="bassmonoResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="bassmonoResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -1916,21 +1975,21 @@ function getDynamicEQTemplate() {
         <div class="effect-panel" id="dynamiceqPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">📊 Dynamic EQ (Professional Mastering)</h2>
-                    <p class="effect-description">Frekans bandının dinamiklerine göre otomatik EQ - De-harsh, De-mud, Vocal control</p>
+                    <h2 class="effect-title">📊 ${tSync('sfx.effects.dynamiceq')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.dynamiceq')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="dynamiceqEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
 
             <!-- Presets -->
             <div class="dynamiceq-presets" style="margin-bottom: 20px;">
-                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">Hazır Ayarlar</h3>
+                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="preset-btn" onclick="applyDynamicEQPreset('deharsh')">✨ De-Harsh (3-5kHz)</button>
                     <button class="preset-btn" onclick="applyDynamicEQPreset('demud')">🎯 De-Mud (200-400Hz)</button>
@@ -2033,7 +2092,7 @@ function getDynamicEQTemplate() {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="dynamiceqResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="dynamiceqResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -2045,21 +2104,21 @@ function getTapeSatTemplate() {
             <div class="effect-panel" id="tapesatPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">📼 Tape Saturation (Analog Character)</h2>
-                    <p class="effect-description">Analog bant doygunluğu, sıcaklık ve harmonik zenginlik katar.</p>
+                    <h2 class="effect-title">📼 ${tSync('sfx.effects.tapesat')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.tapesat')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="tapesatEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
 
             <!-- Presets -->
             <div class="tapesat-presets" style="margin-bottom: 20px;">
-                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">Hazır Ayarlar</h3>
+                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="preset-btn" onclick="applyTapeSatPreset('subtle')">✨ Subtle Warmth</button>
                     <button class="preset-btn" onclick="applyTapeSatPreset('glue')">🧤 Mastering Glue</button>
@@ -2142,7 +2201,7 @@ function getTapeSatTemplate() {
             </div>
 
             <div style="text-align: right; margin-top: 20px;">
-                <button class="action-btn" onclick="resetEffect('tapesat')" style="background: #e74c3c;">Sıfırla</button>
+                <button class="action-btn" onclick="resetEffect('tapesat')" style="background: #e74c3c;">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -2155,21 +2214,21 @@ function getBitDitherTemplate() {
         <div class="effect-panel" id="bitditherPanel">
             <div class="effect-header">
                 <div class="effect-title-section">
-                    <h2 class="effect-title">🎚️ Bit-depth / Dither</h2>
-                    <p class="effect-description">Lo-fi karakter veya profesyonel format dönüşümü için bit azaltma ve dither.</p>
+                    <h2 class="effect-title">🎚️ ${tSync('sfx.effects.bitdither')}</h2>
+                    <p class="effect-description">${tSync('sfx.descriptions.bitdither')}</p>
                 </div>
                 <div class="effect-actions">
                     <label class="enable-toggle">
                         <input type="checkbox" id="bitditherEnabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
 
             <!-- Presets -->
             <div class="tapesat-presets" style="margin-bottom: 20px;">
-                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">Hazır Ayarlar</h3>
+                <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="preset-btn" onclick="applyBitDitherPreset('cd16')">💿 CD Mastering (16-bit)</button>
                     <button class="preset-btn" onclick="applyBitDitherPreset('retro12')">📻 Retro 12-bit</button>
@@ -2249,7 +2308,7 @@ function getBitDitherTemplate() {
             </div>
 
             <div style="text-align: right; margin-top: 20px;">
-                <button class="action-btn" onclick="resetEffect('bitdither')" style="background: #e74c3c;">Sıfırla</button>
+                <button class="action-btn" onclick="resetEffect('bitdither')" style="background: #e74c3c;">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -2287,7 +2346,7 @@ function getGenericEffectTemplate(effectId, title, description, knobs) {
                     <label class="enable-toggle">
                         <input type="checkbox" id="${effectId}Enabled" ${settings.enabled ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
-                        <span class="enable-label">Etkinleştir</span>
+                        <span class="enable-label">${tSync('sfx.ui.enable')}</span>
                     </label>
                 </div>
             </div>
@@ -2297,7 +2356,7 @@ function getGenericEffectTemplate(effectId, title, description, knobs) {
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                <button class="action-btn danger" id="${effectId}ResetBtn">Sıfırla</button>
+                <button class="action-btn danger" id="${effectId}ResetBtn">${tSync('sfx.ui.reset')}</button>
             </div>
         </div>
     `;
@@ -2799,9 +2858,9 @@ function initBalanceSlider() {
 }
 
 function getBalanceText(value) {
-    if (value === 0) return 'Merkez (0%)';
-    if (value < 0) return `Sol (${Math.abs(value)}%)`;
-    return `Sağ (${value}%)`;
+    if (value === 0) return tSync('sfx.balance.center', { pct: 0 });
+    if (value < 0) return tSync('sfx.balance.left', { pct: Math.abs(value) });
+    return tSync('sfx.balance.right', { pct: value });
 }
 
 // ============================================
@@ -4407,7 +4466,13 @@ function showEQPresets() {
         return;
     }
     console.error('[showEQPresets] HATA: presets API bulunamadı!');
-    alert('Hazır Ayarlar penceresi açılamadı (presets API yok).');
+    if (window.i18n?.t) {
+        window.i18n.t('errors.presetsWindowOpenFailed')
+            .then((msg) => alert(msg))
+            .catch(() => alert(tSync('errors.presetsWindowOpenFailed')));
+    } else {
+        alert(tSync('errors.presetsWindowOpenFailed'));
+    }
 }
 
 function clampEQGain(v) {
@@ -4435,7 +4500,9 @@ function applyEQPresetPayload(payload) {
     }
 
     const bands = normalize32Bands(preset.bands);
-    const presetName = preset.name || (filename ? filename.replace(/\.json$/i, '').replace(/_/g, ' ') : 'Hazır Ayar');
+    const presetName =
+        preset.name ||
+        (filename ? filename.replace(/\.json$/i, '').replace(/_/g, ' ') : tSync('sfx.ui.presetFallback'));
 
     dbgEq('[APPLY EQ PRESET] Preset bilgisi:', {
         name: presetName,
@@ -4468,11 +4535,13 @@ function updateEqPresetButtonLabel() {
     const btn = document.getElementById('eqPresetsBtn');
     if (!btn) return;
     const settings = getSettings('eq32');
-    const name = settings?.lastPreset?.name;
+    const label = tSync('sfx.ui.presets');
+    const name = getLocalizedPresetName(settings?.lastPreset);
+
     if (name) {
-        btn.textContent = `Hazır Ayarlar • ${name}`;
+        btn.innerHTML = `${escapeHtml(label)} <span class="preset-sep">•</span> <span class="preset-name">${escapeHtml(name)}</span>`;
     } else {
-        btn.textContent = 'Hazır Ayarlar';
+        btn.textContent = label;
     }
 }
 
@@ -4544,7 +4613,12 @@ function updateDSPStatus() {
     const statusEl = document.getElementById('dspStatus');
     if (statusEl) {
         const activeCount = Object.values(SFX.settings).filter(s => s.enabled).length;
-        statusEl.textContent = `DSP: ${SFX.masterEnabled ? 'Açık' : 'Kapalı'} • PY: Açık • Aktif: ${activeCount}`;
+        const on = tSync('sfx.on') === 'sfx.on' ? 'On' : tSync('sfx.on');
+        const off = tSync('sfx.off') === 'sfx.off' ? 'Off' : tSync('sfx.off');
+        const dsp = SFX.masterEnabled ? on : off;
+        const py = on;
+        const localized = tSync('sfx.dspStatus', { dsp, py, active: activeCount });
+        statusEl.textContent = localized && localized !== 'sfx.dspStatus' ? localized : `DSP: ${dsp} • PY: ${py} • Active: ${activeCount}`;
     }
 }
 

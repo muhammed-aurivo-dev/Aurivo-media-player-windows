@@ -53,6 +53,56 @@ body {
     height: 100vh;
 }
 
+/* RTL / Arabic readability */
+body.rtl {
+    font-family: "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Kufi Arabic", "Cairo", "Tajawal", "Amiri",
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body.rtl * {
+    letter-spacing: normal !important;
+}
+
+body.rtl .header-tab {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+body.rtl .toggle-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+body.rtl .dsp-status {
+    font-size: 12px;
+}
+
+body.rtl .effect-name {
+    font-size: 13px;
+    font-weight: 650;
+}
+
+body.rtl .effect-description {
+    font-size: 13px;
+    color: #8e8e9a;
+}
+
+body.rtl .engine-info {
+    font-size: 12px;
+}
+
+/* Keep mixed Arabic/Latin labels readable */
+body.rtl .action-btn .preset-name {
+    direction: ltr;
+    unicode-bidi: isolate;
+    display: inline-block;
+}
+
 /* ============================================
    ANA KONTEYNER
    ============================================ */

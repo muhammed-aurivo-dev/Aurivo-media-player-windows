@@ -668,6 +668,16 @@ const aurivoAPI = {
         isMaximized: () => ipcRenderer.invoke('window:isMaximized')
     },
 
+    // APP CONTROL
+    app: {
+        relaunch: () => ipcRenderer.invoke('app:relaunch')
+    },
+
+    // I18N
+    i18n: {
+        loadLocale: (lang) => ipcRenderer.invoke('i18n:loadLocale', lang)
+    },
+
     // SYSTEM TRAY MEDIA CONTROL LISTENER
     onMediaControl: (callback) => {
         ipcRenderer.on('media-control', (event, action) => callback(action));

@@ -13,37 +13,39 @@
 <body>
     <div class="preset-shell">
         <div class="preset-header">
-            <h1 class="preset-title">Hazır Ayarlar</h1>
+            <h1 class="preset-title" data-i18n="eqPresets.title">Hazır Ayarlar</h1>
         </div>
 
         <div class="preset-search">
             <input id="presetSearch" class="preset-search-input" type="text"
-                placeholder="Hazır ayar ara... (örn. bass, v-shape, vocal)" autocomplete="off" spellcheck="false" />
-            <select id="presetGroup" class="preset-group" aria-label="Hazır ayar grubu">
-                <option value="all" selected>Tümü</option>
-                <option value="bass">Bas</option>
-                <option value="treble">Tiz</option>
-                <option value="vocal">Vokal</option>
-                <option value="jazz">Caz</option>
-                <option value="classical">Klasik</option>
-                <option value="electronic">Elektronik</option>
-                <option value="pop">Pop</option>
-                <option value="rock">Rock</option>
-                <option value="vshape">V-Shape</option>
-                <option value="flat">Düz</option>
-                <option value="other">Diğer</option>
+                placeholder="Hazır ayar ara... (örn. bass, v-shape, vocal)" autocomplete="off" spellcheck="false"
+                data-i18n-placeholder="eqPresets.searchPlaceholder" />
+            <select id="presetGroup" class="preset-group" aria-label="Hazır ayar grubu" data-i18n-aria-label="eqPresets.groupLabel">
+                <option value="all" selected data-i18n="eqPresets.groups.all">Tümü</option>
+                <option value="bass" data-i18n="eqPresets.groups.bass">Bas</option>
+                <option value="treble" data-i18n="eqPresets.groups.treble">Tiz</option>
+                <option value="vocal" data-i18n="eqPresets.groups.vocal">Vokal</option>
+                <option value="jazz" data-i18n="eqPresets.groups.jazz">Caz</option>
+                <option value="classical" data-i18n="eqPresets.groups.classical">Klasik</option>
+                <option value="electronic" data-i18n="eqPresets.groups.electronic">Elektronik</option>
+                <option value="pop" data-i18n="eqPresets.groups.pop">Pop</option>
+                <option value="rock" data-i18n="eqPresets.groups.rock">Rock</option>
+                <option value="vshape" data-i18n="eqPresets.groups.vshape">V-Shape</option>
+                <option value="flat" data-i18n="eqPresets.groups.flat">Düz</option>
+                <option value="other" data-i18n="eqPresets.groups.other">Diğer</option>
             </select>
         </div>
 
         <div id="presetStatus" class="preset-status" aria-live="polite"></div>
 
-        <div id="presetList" class="preset-list" aria-label="Hazır ayarlar listesi"></div>
+        <div id="presetList" class="preset-list" aria-label="Hazır ayarlar listesi" data-i18n-aria-label="eqPresets.listLabel"></div>
 
         <div class="preset-footer">
-            <button id="presetOkBtn" class="preset-ok">Tamam</button>
+            <button id="presetOkBtn" class="preset-ok" data-i18n="common.ok">Tamam</button>
         </div>
     </div>
 
+    <script src="modules/i18n.js"></script>
     <script src="eqPresetsRenderer.js"></script>
 </body>
 

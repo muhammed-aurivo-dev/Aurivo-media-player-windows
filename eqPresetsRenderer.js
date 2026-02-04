@@ -4,6 +4,16 @@ const PREVIEW_W = 88;
 const PREVIEW_H = 22;
 const PAGE_SIZE = 60;
 
+function tSync(key, vars, fallback) {
+    try {
+        const v = window.i18n?.tSync?.(key, vars);
+        if (typeof v === 'string' && v && v !== key) return v;
+    } catch {
+        // ignore
+    }
+    return fallback ?? String(key);
+}
+
 const state = {
     all: [],
     filtered: [],
@@ -15,21 +25,6 @@ const state = {
     featured: [],
     selectedGroup: 'all',
     totalCount: 0
-};
-
-const GROUP_LABELS = {
-    all: 'Tümü',
-    bass: 'Bas',
-    treble: 'Tiz',
-    vocal: 'Vokal',
-    jazz: 'Caz',
-    classical: 'Klasik',
-    electronic: 'Elektronik',
-    pop: 'Pop',
-    rock: 'Rock',
-    vshape: 'V-Shape',
-    flat: 'Düz',
-    other: 'Diğer'
 };
 
 function normalizeHaystack(preset) {
@@ -103,10 +98,10 @@ function filterByGroup(list) {
 
 function updateStatusForList(list) {
     const group = state.selectedGroup || 'all';
-    const groupLabel = GROUP_LABELS[group] || group;
     const shown = Array.isArray(list) ? list.length : 0;
     const total = state.totalCount || 0;
-    setStatus(`Gösterilen: ${shown} / ${total} • Grup: ${groupLabel}`);
+    const groupLabel = tSync(`eqPresets.groups.${group}`, null, group);
+    setStatus(tSync('eqPresets.status', { shown, total, group: groupLabel }, `Gösterilen: ${shown} / ${total} • Grup: ${groupLabel}`));
 }
 
 function makeBandsFromPoints(points) {
@@ -145,8 +140,8 @@ function getFeaturedPresetsFallback() {
     return [
         {
             filename: '__flat__',
-            name: 'Düz (Flat)',
-            description: 'Tüm bantlar 0.0 dB',
+            name: tSync('eqPresets.flatName', null, 'Düz (Flat)'),
+            description: tSync('eqPresets.flatDesc', null, 'Tüm bantlar 0.0 dB'),
             bands: new Array(32).fill(0)
         }
     ];
@@ -336,7 +331,7 @@ function renderNextPage() {
 
     const next = state.filtered.slice(state.renderedCount, state.renderedCount + PAGE_SIZE);
     if (next.length === 0 && state.renderedCount === 0) {
-        setEmpty('Sonuç bulunamadı.');
+        setEmpty(tSync('eqPresets.noResults', null, 'Sonuç bulunamadı.'));
         return;
     }
 
@@ -460,7 +455,7 @@ async function init() {
     const groupSel = document.getElementById('presetGroup');
 
     if (!aurivo?.presets) {
-        setEmpty('Preset API bulunamadı.');
+        setEmpty(tSync('eqPresets.apiMissing', null, 'Preset API bulunamadı.'));
         return;
     }
 
@@ -488,8 +483,8 @@ async function init() {
 
     // Tüm AutoEQ presetlerini yükle (tek pencerede göster)
     try {
-        setStatus('AutoEQ presetleri yükleniyor...');
-        setEmpty('AutoEQ presetleri yükleniyor...');
+        setStatus(tSync('eqPresets.loading', null, 'AutoEQ presetleri yükleniyor...'));
+        setEmpty(tSync('eqPresets.loading', null, 'AutoEQ presetleri yükleniyor...'));
         await new Promise(r => setTimeout(r, 0));
 
         const presets = (await aurivo.presets.loadPresetList()) || [];
@@ -505,7 +500,7 @@ async function init() {
         ensureSelectedNotFilteredOut();
         focusSelected();
     } catch {
-        setStatus('AutoEQ yüklenemedi (loglara bakın).');
+        setStatus(tSync('eqPresets.loadError', null, 'AutoEQ yüklenemedi (loglara bakın).'));
         renderList(state.featured);
         if (!state.selected) state.selected = '__flat__';
         selectPreset(state.selected);
@@ -561,7 +556,22 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    init().catch(() => {
-        setEmpty('Presetler yüklenemedi.');
-    });
+    (async () => {
+        try {
+            if (window.i18n?.init) {
+                await window.i18n.init();
+                try {
+                    document.title = await window.i18n.t('eqPresets.windowTitle');
+                } catch {
+                    // ignore
+                }
+            }
+        } catch {
+            // ignore
+        }
+
+        init().catch(() => {
+            setEmpty(tSync('eqPresets.loadFailed', null, 'Presetler yüklenemedi.'));
+        });
+    })();
 });

@@ -218,6 +218,54 @@ function getResourcePath(relPath) {
     return path.join(__dirname, relPath);
 }
 
+function getAppFilePath(relPath) {
+    // Works for files bundled inside app.asar (e.g. locales/*.json)
+    // Dev: app.getAppPath() points to project root; Prod: points to .../resources/app.asar
+    return path.join(app.getAppPath(), relPath);
+}
+
+function getLocaleCandidatePaths(lang) {
+    const normalized = normalizeUiLang(lang) || 'en';
+    const filename = `${normalized}.json`;
+
+    // Prefer app.asar (packaged) / project root (dev)
+    const candidates = [
+        getAppFilePath(path.join('locales', filename)),
+        path.join(__dirname, 'locales', filename),
+        // Some packaging setups may place app.asar under resourcesPath explicitly
+        path.join(process.resourcesPath || '', 'app.asar', 'locales', filename),
+        path.join(process.resourcesPath || '', 'locales', filename)
+    ];
+
+    // De-dup
+    return [...new Set(candidates.filter(Boolean))];
+}
+
+function readFirstJsonSync(paths) {
+    for (const p of paths || []) {
+        try {
+            const json = JSON.parse(fs.readFileSync(p, 'utf8'));
+            return json || {};
+        } catch {
+            // try next
+        }
+    }
+    return null;
+}
+
+async function readFirstJson(paths) {
+    for (const p of paths || []) {
+        try {
+            const data = await fs.promises.readFile(p, 'utf8');
+            const json = JSON.parse(data);
+            return json || {};
+        } catch {
+            // try next
+        }
+    }
+    return null;
+}
+
 function getDownloaderCliPath() {
     return getResourcePath(path.join('Aurivo-Dawlod', 'aurivo_download_cli.py'));
 }
@@ -299,6 +347,153 @@ function getAppIconImage() {
 
 function getSettingsPath() {
     return path.join(app.getPath('userData'), 'settings.json');
+}
+
+// ============================================================
+// UI I18N (Main Process)
+// - Renderer stores selected language in settings.json: ui.language
+// - Fallback to app.getLocale(), then English
+// ============================================================
+const UI_SUPPORTED_LANGS = new Set(['tr', 'en', 'ar', 'fr', 'de', 'es', 'hi']);
+const uiMessagesCache = new Map(); // lang -> messages
+
+function normalizeUiLang(lang) {
+    if (!lang) return null;
+    const base = String(lang).trim().toLowerCase().split(/[-_]/)[0];
+    return UI_SUPPORTED_LANGS.has(base) ? base : null;
+}
+
+function deepGet(obj, pathStr) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const parts = String(pathStr).split('.').filter(Boolean);
+    let cur = obj;
+    for (const p of parts) {
+        if (!cur || typeof cur !== 'object' || !(p in cur)) return undefined;
+        cur = cur[p];
+    }
+    return cur;
+}
+
+function formatTemplate(str, vars) {
+    if (!vars || typeof vars !== 'object') return String(str);
+    return String(str).replace(/\{(\w+)\}/g, (_m, k) => {
+        if (Object.prototype.hasOwnProperty.call(vars, k)) return String(vars[k]);
+        return `{${k}}`;
+    });
+}
+
+function getUiLanguageSync() {
+    try {
+        const data = fs.readFileSync(getSettingsPath(), 'utf8');
+        const parsed = JSON.parse(data);
+        const saved = normalizeUiLang(parsed?.ui?.language);
+        if (saved) return saved;
+    } catch {
+        // ignore
+    }
+
+    return normalizeUiLang(app.getLocale()) || 'en';
+}
+
+function loadUiMessagesSync(lang) {
+    const normalized = normalizeUiLang(lang) || 'en';
+    if (uiMessagesCache.has(normalized)) return uiMessagesCache.get(normalized);
+    try {
+        const json = readFirstJsonSync(getLocaleCandidatePaths(normalized));
+        if (json) {
+            uiMessagesCache.set(normalized, json || {});
+            return json || {};
+        }
+    } catch {
+        if (normalized !== 'en') return loadUiMessagesSync('en');
+        uiMessagesCache.set('en', {});
+        return {};
+    }
+}
+
+function tMainSync(key, vars) {
+    const lang = getUiLanguageSync();
+    const messages = loadUiMessagesSync(lang);
+    let raw = deepGet(messages, key);
+    if (typeof raw !== 'string' && lang !== 'en') {
+        raw = deepGet(loadUiMessagesSync('en'), key);
+    }
+    if (typeof raw !== 'string') return String(key);
+    return formatTemplate(raw, vars);
+}
+
+function installAppMenu() {
+    const isMac = process.platform === 'darwin';
+
+    const template = [
+        ...(isMac ? [{
+            label: app.getName(),
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit', label: tMainSync('appMenu.quit') }
+            ]
+        }] : []),
+        {
+            label: tMainSync('appMenu.file'),
+            submenu: [
+                ...(isMac ? [] : [{ role: 'quit', label: tMainSync('appMenu.quit') }])
+            ]
+        },
+        {
+            label: tMainSync('appMenu.edit'),
+            submenu: [
+                { role: 'undo', label: tMainSync('appMenu.undo') },
+                { role: 'redo', label: tMainSync('appMenu.redo') },
+                { type: 'separator' },
+                { role: 'cut', label: tMainSync('appMenu.cut') },
+                { role: 'copy', label: tMainSync('appMenu.copy') },
+                { role: 'paste', label: tMainSync('appMenu.paste') },
+                { role: 'selectAll', label: tMainSync('appMenu.selectAll') }
+            ]
+        },
+        {
+            label: tMainSync('appMenu.view'),
+            submenu: [
+                { role: 'reload', label: tMainSync('appMenu.reload') },
+                { role: 'toggleDevTools', label: tMainSync('appMenu.toggleDevTools') },
+                { type: 'separator' },
+                { role: 'resetZoom', label: tMainSync('appMenu.resetZoom') },
+                { role: 'zoomIn', label: tMainSync('appMenu.zoomIn') },
+                { role: 'zoomOut', label: tMainSync('appMenu.zoomOut') },
+                { type: 'separator' },
+                { role: 'togglefullscreen', label: tMainSync('appMenu.toggleFullscreen') }
+            ]
+        },
+        {
+            label: tMainSync('appMenu.window'),
+            submenu: [
+                { role: 'minimize', label: tMainSync('appMenu.minimize') },
+                { role: 'close', label: tMainSync('appMenu.close') }
+            ]
+        },
+        {
+            label: tMainSync('appMenu.help'),
+            submenu: [
+                {
+                    label: 'aurivo.app',
+                    click: () => shell.openExternal('https://aurivo.app').catch(() => { /* ignore */ })
+                }
+            ]
+        }
+    ];
+
+    try {
+        Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    } catch (e) {
+        console.warn('[MENU] Failed to set application menu:', e?.message || e);
+    }
 }
 
 async function writeJsonFileAtomic(filePath, obj) {
@@ -1055,8 +1250,8 @@ function startVisualizer() {
     if (!fs.existsSync(exePath)) {
         console.error('[Visualizer] executable bulunamadı:', exePath);
         dialog.showErrorBox(
-            'Visualizer bulunamadı',
-            `Çalıştırılabilir dosya bulunamadı:\n${exePath}\n\nLinux için:\n- cmake --build build-visualizer\n- cp build-visualizer/aurivo-projectm-visualizer native-dist/aurivo-projectm-visualizer\n\nGeliştirme modunda (npm run dev) build-visualizer çıktısı otomatik tercih edilir.`
+            tMainSync('visualizer.notFoundTitle'),
+            tMainSync('visualizer.notFoundBody', { path: exePath })
         );
         return false;
     }
@@ -1161,6 +1356,47 @@ ipcMain.handle('visualizer:toggle', () => {
 });
 
 // ============================================
+// I18N (LOCALES)
+// ============================================
+ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
+    const normalized = normalizeUiLang(lang) || 'en';
+    try {
+        const json = await readFirstJson(getLocaleCandidatePaths(normalized));
+        if (json) return json;
+    } catch (e) {
+        if (normalized !== 'en') {
+            try {
+                const json = await readFirstJson(getLocaleCandidatePaths('en'));
+                if (json) return json;
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    }
+    // Fallback
+    if (normalized !== 'en') {
+        const json = await readFirstJson(getLocaleCandidatePaths('en'));
+        if (json) return json;
+    }
+    return {};
+});
+
+// ============================================
+// APP CONTROL (RELAUNCH)
+// ============================================
+ipcMain.handle('app:relaunch', async () => {
+    try {
+        app.relaunch();
+        app.exit(0);
+        return true;
+    } catch (e) {
+        console.error('[APP] relaunch failed:', e);
+        return false;
+    }
+});
+
+// ============================================
 // PENCERE KONTROL IPC HANDLERS
 // ============================================
 ipcMain.handle('window:minimize', (event) => {
@@ -1201,6 +1437,7 @@ app.whenReady().then(async () => {
     app.commandLine.appendSwitch('enable-gpu-rasterization');
     app.commandLine.appendSwitch('enable-zero-copy');
 
+    installAppMenu();
     createWindow();
     createTray();
     createMPRIS();
@@ -1238,16 +1475,16 @@ ipcMain.handle('dialog:openFile', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile', 'multiSelections'],
         filters: [
-            { name: 'Audio Files', extensions: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac', 'wma', 'opus', 'aiff'] },
-            { name: 'Video Files', extensions: ['mp4', 'mkv', 'webm', 'avi', 'mov', 'wmv', 'm4v'] },
-            { name: 'All Files', extensions: ['*'] }
+            { name: tMainSync('dialog.filters.audioFiles'), extensions: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac', 'wma', 'opus', 'aiff'] },
+            { name: tMainSync('dialog.filters.videoFiles'), extensions: ['mp4', 'mkv', 'webm', 'avi', 'mov', 'wmv', 'm4v'] },
+            { name: tMainSync('dialog.filters.allFiles'), extensions: ['*'] }
         ]
     });
     return result.filePaths;
 });
 
 ipcMain.handle('dialog:openFolder', async (_event, opts) => {
-    const title = (opts && typeof opts === 'object' && opts.title) ? String(opts.title) : 'Müzik Klasörü Seç';
+    const title = (opts && typeof opts === 'object' && opts.title) ? String(opts.title) : tMainSync('dialog.selectMusicFolder');
     const defaultPath = (opts && typeof opts === 'object' && opts.defaultPath) ? String(opts.defaultPath) : undefined;
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory'],
@@ -1272,10 +1509,10 @@ ipcMain.handle('dialog:openFolder', async (_event, opts) => {
 ipcMain.handle('dialog:openFiles', async (event, filters) => {
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile', 'multiSelections'],
-        title: 'Müzik Dosyaları Seç',
+        title: tMainSync('dialog.selectMusicFiles'),
         filters: filters || [
-            { name: 'Müzik Dosyaları', extensions: ['mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'ape', 'wv'] },
-            { name: 'Tüm Dosyalar', extensions: ['*'] }
+            { name: tMainSync('dialog.filters.musicFiles'), extensions: ['mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'ape', 'wv'] },
+            { name: tMainSync('dialog.filters.allFiles'), extensions: ['*'] }
         ]
     });
 

@@ -29,6 +29,20 @@ body {
     color: var(--text);
 }
 
+/* RTL / Arabic readability */
+body.rtl {
+    font-family: "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Kufi Arabic", "Cairo", "Tajawal", "Amiri",
+        system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", Arial, sans-serif;
+    font-weight: 500;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body.rtl * {
+    letter-spacing: normal !important;
+}
+
 .preset-shell {
     height: 100%;
     display: grid;

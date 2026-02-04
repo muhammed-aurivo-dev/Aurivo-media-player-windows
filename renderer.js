@@ -82,6 +82,11 @@ const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'wmv', 'm4v', 'flv
 // DOM Elements
 const elements = {};
 
+// File tree mouse-drag selection state
+let fileTreeDragTrack = null; // { startItem, startX, startY, selecting }
+let suppressFileItemClickOnce = false;
+let blockFileTreeDragStart = false;
+
 // Download UI State
 const downloadState = {
     mode: 'video', // 'video' | 'audio'
@@ -96,6 +101,7 @@ const downloadState = {
 // ============================================
 document.addEventListener('DOMContentLoaded', async () => {
     cacheElements();
+    await initializeI18n();
 
     // Player bar görünürlüğü kontrol et
     const playerBar = document.getElementById('playerBar');
@@ -122,6 +128,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('🎵 HTML5 Audio kullanılıyor');
     }
 });
+
+async function initializeI18n() {
+    try {
+        if (window.i18n && typeof window.i18n.init === 'function') {
+            const lang = await window.i18n.init();
+            try {
+                document.title = await window.i18n.t('app.title');
+            } catch {
+                // ignore
+            }
+
+            if (elements.languageSelect) {
+                elements.languageSelect.value = lang || elements.languageSelect.value;
+                hideRestartHint();
+                if (!elements.languageSelect.dataset.listenerAttached) {
+                    elements.languageSelect.dataset.listenerAttached = 'true';
+                    elements.languageSelect.addEventListener('change', async (e) => {
+                        const next = e?.target?.value;
+                        if (!next) return;
+                        await window.i18n.setLanguagePreference(next);
+                        showRestartHint();
+                        openRestartModal();
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[I18N] init failed:', e?.message || e);
+    }
+}
+
+function showRestartHint() {
+    const el = document.getElementById('languageRestartHint');
+    if (el) el.classList.remove('hidden');
+}
+
+function hideRestartHint() {
+    const el = document.getElementById('languageRestartHint');
+    if (el) el.classList.add('hidden');
+}
+
+function openRestartModal() {
+    const overlay = document.getElementById('restartModalOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    overlay.classList.add('active');
+}
+
+function closeRestartModal() {
+    const overlay = document.getElementById('restartModalOverlay');
+    if (!overlay) return;
+    overlay.classList.add('hidden');
+    overlay.classList.remove('active');
+}
 
 // C++ Audio Engine mevcut mu kontrol et ve başlat
 async function checkNativeAudio() {
@@ -280,6 +340,7 @@ function cacheElements() {
     elements.volumeBtn = document.getElementById('volumeBtn');
     elements.volumeSlider = document.getElementById('volumeSlider');
     elements.volumeLabel = document.getElementById('volumeLabel');
+    elements.clearPlaylistBtn = document.getElementById('clearPlaylistBtn');
 
     // Visualizer
     elements.visualizerCanvas = document.getElementById('visualizerCanvas');
@@ -292,6 +353,11 @@ function cacheElements() {
     elements.settingsApply = document.getElementById('settingsApply');
     elements.settingsCancel = document.getElementById('settingsCancel');
     elements.resetPlayback = document.getElementById('resetPlayback');
+    elements.languageSelect = document.getElementById('languageSelect');
+    elements.restartModalOverlay = document.getElementById('restartModalOverlay');
+    elements.restartModalClose = document.getElementById('restartModalClose');
+    elements.restartModalYes = document.getElementById('restartModalYes');
+    elements.restartModalNo = document.getElementById('restartModalNo');
 
     // Download Settings (Preferences modal)
     elements.downloadPrefDirPath = document.getElementById('downloadPrefDirPath');
@@ -460,6 +526,18 @@ async function loadSettings() {
             };
         }
 
+        // Defaults for fullscreen video settings
+        if (!state.settings.videoFullscreen) {
+            state.settings.videoFullscreen = {
+                stableVolume: false,
+                volumeBoost: false,
+                cinematicLighting: true,
+                annotations: true,
+                sleepTimerMinutes: 0,
+                subtitles: 'off'
+            };
+        }
+
         // UI'ı güncelle
         elements.volumeSlider.value = state.volume;
         elements.volumeLabel.textContent = state.volume + '%';
@@ -512,6 +590,25 @@ function setupEventListeners() {
         });
     }
 
+    // Restart modal (language)
+    if (elements.restartModalClose) elements.restartModalClose.addEventListener('click', closeRestartModal);
+    if (elements.restartModalNo) elements.restartModalNo.addEventListener('click', closeRestartModal);
+    if (elements.restartModalYes) {
+        elements.restartModalYes.addEventListener('click', async () => {
+            try {
+                const ok = await window.aurivo?.app?.relaunch?.();
+                if (!ok) closeRestartModal();
+            } catch {
+                closeRestartModal();
+            }
+        });
+    }
+    if (elements.restartModalOverlay) {
+        elements.restartModalOverlay.addEventListener('click', (e) => {
+            if (e.target === elements.restartModalOverlay) closeRestartModal();
+        });
+    }
+
     // Web Platforms
     elements.platformBtns.forEach(btn => {
         btn.addEventListener('click', () => handlePlatformClick(btn));
@@ -522,6 +619,12 @@ function setupEventListeners() {
         elements.fileTree.addEventListener('click', handleFileTreeClick);
         elements.fileTree.addEventListener('dblclick', handleFileTreeDblClick);
         elements.fileTree.addEventListener('contextmenu', handleFileTreeContextMenu);
+        // While doing mouse-drag selection, don't start HTML drag&drop
+        elements.fileTree.addEventListener('dragstart', (e) => {
+            if (!blockFileTreeDragStart) return;
+            e.preventDefault();
+            e.stopPropagation();
+        }, true);
     }
 
     // Global fallback: click'leri yakala (DOM değişiminde kaybolmasın)
@@ -540,6 +643,9 @@ function setupEventListeners() {
     elements.refreshBtn.addEventListener('click', refreshCurrentView);
 
     // Player Controls
+    if (elements.clearPlaylistBtn) {
+        elements.clearPlaylistBtn.addEventListener('click', clearPlaylistAll);
+    }
     elements.playPauseBtn.addEventListener('click', togglePlayPause);
     elements.prevBtn.addEventListener('click', () => playPreviousWithCrossfade());
     elements.nextBtn.addEventListener('click', () => playNextWithCrossfade());
@@ -660,67 +766,100 @@ function setupEventListeners() {
             }
         });
 
-        // Çift Müzik Simgesi Çözümü: WebView içindeki MediaSession API'yi devre dışı bırak
-        // Böylece YouTube/Spotify vb. kendi MPRIS/MediaSession kontrolünü oluşturamaz.
-        // Sadece Aurivo'nun ana süreçteki (main process) MPRIS servisi aktif kalır.
+        // WebView Sync: MediaSession/Video bilgilerini yakala (MPRIS + kapak + web now-playing için).
+        // Not: Bazı Chromium sürümlerinde navigator.mediaSession override edilemez (non-configurable).
+        // Bu yüzden "disable" yerine güvenli polling + event dinleme ile AURIVO_SYNC mesajları üretiyoruz.
         elements.webView.addEventListener('dom-ready', () => {
             elements.webView.executeJavaScript(`
                 try {
-                    if (window.navigator) {
-                        // Dummy MediaSession with metadata interception
-                        const dummySession = {
-                            playbackState: "none",
-                            setActionHandler: function() {},
-                            setPositionState: function() {}
-                        };
-                        
-                        let _metadata = null;
-                        Object.defineProperty(dummySession, 'metadata', {
-                            get: function() { return _metadata; },
-                            set: function(val) {
-                                _metadata = val;
-                                if (val) {
-                                    let artworkUrl = "";
-                                    if (val.artwork && val.artwork.length > 0) {
-                                        artworkUrl = val.artwork[val.artwork.length - 1].src;
-                                    }
-                                    const data = { type: 'metadata', title: val.title, artist: val.artist, album: val.album, artwork: artworkUrl };
-                                    console.log('AURIVO_SYNC:' + JSON.stringify(data));
-                                }
-                            }
-                        });
-
-                        Object.defineProperty(window.navigator, "mediaSession", {
-                            value: dummySession,
-                            writable: false, configurable: false
-                        });
-                    }
-                    
-                    // Aurivo Sync Script: YouTube olaylarını dinle ve ana sürece ilet
                     (function() {
+                        const send = (payload) => {
+                            try { console.log('AURIVO_SYNC:' + JSON.stringify(payload)); } catch(e) {}
+                        };
+
+                        let lastMetaKey = '';
+                        let lastTimeKey = '';
                         let lastMedia = null;
+
+                        function getArtworkUrl(md) {
+                            try {
+                                const art = md && md.artwork;
+                                if (!Array.isArray(art) || art.length === 0) return '';
+                                const last = art[art.length - 1];
+                                return (last && last.src) ? String(last.src) : '';
+                            } catch { return ''; }
+                        }
+
+                        function emitMetadata(force) {
+                            try {
+                                const ms = navigator.mediaSession;
+                                const md = ms && ms.metadata;
+                                const title = (md && md.title) ? String(md.title) : (document.title || '');
+                                const artist = (md && md.artist) ? String(md.artist) : '';
+                                const album = (md && md.album) ? String(md.album) : '';
+                                const artwork = md ? getArtworkUrl(md) : '';
+                                const key = [title, artist, album, artwork].join('|');
+                                if (!force && key === lastMetaKey) return;
+                                lastMetaKey = key;
+                                if (!title && !artist && !album) return;
+                                send({ type: 'metadata', title, artist, album, artwork });
+                            } catch(e) {}
+                        }
+
+                        function emitTime(force) {
+                            const media = document.querySelector('video, audio');
+                            if (!media) return;
+                            try {
+                                const ct = Number(media.currentTime) || 0;
+                                const dur = Number(media.duration) || 0;
+                                const paused = !!media.paused;
+                                // 0.5s resolution reduces spam
+                                const key = [Math.floor(ct * 2) / 2, Math.floor(dur), paused].join('|');
+                                if (!force && key === lastTimeKey) return;
+                                lastTimeKey = key;
+                                send({ type: 'timeupdate', currentTime: ct, duration: dur, paused });
+                            } catch(e) {}
+                        }
+
                         function attachEvents(media) {
-                            if (lastMedia === media) return;
+                            if (!media || lastMedia === media) return;
                             lastMedia = media;
+
                             const sendUpdate = (type) => {
-                                const data = { type: type, currentTime: media.currentTime, duration: media.duration, paused: media.paused };
-                                console.log('AURIVO_SYNC:' + JSON.stringify(data));
+                                try {
+                                    send({ type, currentTime: media.currentTime, duration: media.duration, paused: media.paused });
+                                } catch(e) {}
                             };
+
                             media.addEventListener('play', () => sendUpdate('play'));
                             media.addEventListener('pause', () => sendUpdate('pause'));
                             media.addEventListener('seeked', () => sendUpdate('seeked'));
                             media.addEventListener('durationchange', () => sendUpdate('durationchange'));
                             media.addEventListener('loadeddata', () => sendUpdate('loadeddata'));
+
+                            emitMetadata(true);
+                            emitTime(true);
                         }
+
                         const observer = new MutationObserver(() => {
                             const media = document.querySelector('video, audio');
                             if (media) attachEvents(media);
+                            emitMetadata(false);
                         });
-                        observer.observe(document.body, { childList: true, subtree: true });
+                        observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+
                         const media = document.querySelector('video, audio');
                         if (media) attachEvents(media);
+
+                        setInterval(() => {
+                            emitMetadata(false);
+                            emitTime(false);
+                        }, 900);
+
+                        emitMetadata(true);
+                        emitTime(true);
                     })();
-                } catch(e) { console.error("MediaSession disable error:", e); }
+                } catch(e) { console.error("AURIVO_SYNC error:", e); }
             `);
         });
     }
@@ -742,11 +881,13 @@ function updateSecurityUI() {
     const isHttps = url.startsWith('https://');
     const isHttp = url.startsWith('http://');
 
-    if (elements.securityCurrentUrl) elements.securityCurrentUrl.textContent = `URL: ${url}`;
+    if (elements.securityCurrentUrl) {
+        elements.securityCurrentUrl.textContent = uiT('securityPage.dynamic.urlLine', 'URL: {url}', { url });
+    }
     if (elements.securityConnStatus) {
-        if (isHttps) elements.securityConnStatus.textContent = 'Bağlantı: Güvenli (HTTPS)';
-        else if (isHttp) elements.securityConnStatus.textContent = 'Bağlantı: Güvensiz (HTTP)';
-        else elements.securityConnStatus.textContent = 'Bağlantı: -';
+        if (isHttps) elements.securityConnStatus.textContent = uiT('securityPage.dynamic.connSecure', 'Connection: Secure (HTTPS)');
+        else if (isHttp) elements.securityConnStatus.textContent = uiT('securityPage.dynamic.connInsecure', 'Connection: Insecure (HTTP)');
+        else elements.securityConnStatus.textContent = uiT('securityPage.dynamic.connUnknown', 'Connection: -');
     }
 
     if (elements.securityAllowPopups && elements.webView) {
@@ -788,9 +929,9 @@ function setupSecurityUI() {
             const url = getWebViewUrlSafe();
             try {
                 window.aurivo?.clipboard?.setText?.(url);
-                safeNotify('URL kopyalandı.', 'success');
+                safeNotify(uiT('securityPage.notify.urlCopied', 'URL copied.'), 'success');
             } catch (e) {
-                safeNotify('URL kopyalanamadı: ' + (e?.message || e), 'error');
+                safeNotify(uiT('securityPage.notify.urlCopyFailed', "Couldn't copy URL: {error}", { error: e?.message || e }), 'error');
             }
         });
     }
@@ -800,9 +941,9 @@ function setupSecurityUI() {
             const url = getWebViewUrlSafe();
             try {
                 const ok = await window.aurivo?.webSecurity?.openExternal?.(url);
-                if (!ok) safeNotify('Tarayıcıda açılamadı.', 'error');
+                if (!ok) safeNotify(uiT('securityPage.notify.openInBrowserFailed', "Couldn't open in browser."), 'error');
             } catch (e) {
-                safeNotify('Tarayıcıda açılamadı: ' + (e?.message || e), 'error');
+                safeNotify(uiT('securityPage.notify.openInBrowserError', "Couldn't open in browser: {error}", { error: e?.message || e }), 'error');
             }
         });
     }
@@ -811,33 +952,39 @@ function setupSecurityUI() {
         try {
             const ok = await window.aurivo?.webSecurity?.clearData?.(opts);
             if (!ok) {
-                safeNotify('Temizleme başarısız.', 'error');
+                safeNotify(uiT('securityPage.notify.clearFailed', 'Clearing failed.'), 'error');
                 return;
             }
             safeNotify(okMsg, 'success');
             updateSecurityUI();
         } catch (e) {
-            safeNotify('Temizleme hatası: ' + (e?.message || e), 'error');
+            safeNotify(uiT('securityPage.notify.clearError', 'Clearing error: {error}', { error: e?.message || e }), 'error');
         }
     };
 
     if (elements.securityClearCookiesBtn) {
-        elements.securityClearCookiesBtn.addEventListener('click', () => clear({ cookies: true }, 'Çerezler temizlendi.'));
+        elements.securityClearCookiesBtn.addEventListener('click', () =>
+            clear({ cookies: true }, uiT('securityPage.notify.cookiesCleared', 'Cookies cleared.'))
+        );
     }
     if (elements.securityClearCacheBtn) {
-        elements.securityClearCacheBtn.addEventListener('click', () => clear({ cache: true }, 'Önbellek temizlendi.'));
+        elements.securityClearCacheBtn.addEventListener('click', () =>
+            clear({ cache: true }, uiT('securityPage.notify.cacheCleared', 'Cache cleared.'))
+        );
     }
     if (elements.securityClearAllBtn) {
-        elements.securityClearAllBtn.addEventListener('click', () => clear({ all: true }, 'Web verileri temizlendi.'));
+        elements.securityClearAllBtn.addEventListener('click', () =>
+            clear({ all: true }, uiT('securityPage.notify.allCleared', 'Web data cleared.'))
+        );
     }
     if (elements.securityResetWebBtn) {
         elements.securityResetWebBtn.addEventListener('click', () => {
             try {
                 elements.webView?.loadURL?.('about:blank');
-                safeNotify('Web sıfırlandı.', 'success');
+                safeNotify(uiT('securityPage.notify.webResetOk', 'Web has been reset.'), 'success');
                 updateSecurityUI();
             } catch (e) {
-                safeNotify('Web sıfırlanamadı: ' + (e?.message || e), 'error');
+                safeNotify(uiT('securityPage.notify.webResetFailed', "Couldn't reset Web: {error}", { error: e?.message || e }), 'error');
             }
         });
     }
@@ -957,8 +1104,27 @@ function setupSystemTrayControl() {
             console.log('MPRIS seek offset (relative):', offsetMicroseconds);
             const offsetSeconds = offsetMicroseconds / 1000000;
 
-            // Mevcut pozisyonu al ve offset ekle
-            if (useNativeAudio && window.aurivo?.audio) {
+            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native engine'e düşmesin)
+            if (state.activeMedia === 'web' && elements.webView) {
+                // Web/YouTube Relative Seek
+                try {
+                    const delta = Number(offsetSeconds);
+                    if (!isNaN(delta) && isFinite(delta)) {
+                        await elements.webView.executeJavaScript(`
+                            (function(){
+                                var v = document.querySelector('video, audio');
+                                if (v) v.currentTime = Math.max(0, (v.currentTime || 0) + (${delta}));
+                            })();
+                        `);
+                    }
+                } catch (e) {
+                    console.warn('Web seek error:', e);
+                }
+                return;
+            }
+
+            // Mevcut pozisyonu al ve offset ekle (yalnızca ses sekmesinde)
+            if (state.activeMedia === 'audio' && useNativeAudio && window.aurivo?.audio) {
                 try {
                     const currentPos = await window.aurivo.audio.getPosition(); // ms
                     const newPos = currentPos + (offsetSeconds * 1000); // ms
@@ -967,14 +1133,6 @@ function setupSystemTrayControl() {
                 } catch (e) {
                     console.error('Seek error:', e);
                 }
-            } else if (state.activeMedia === 'web' && elements.webView) {
-                // Web/YouTube Relative Seek
-                try {
-                    elements.webView.executeJavaScript(`
-                        var v = document.querySelector('video, audio');
-                        if (v) v.currentTime += ${offsetSeconds};
-                    `);
-                } catch (e) { console.warn('Web seek error:', e); }
             } else {
                 seekBy(offsetSeconds);
             }
@@ -987,30 +1145,38 @@ function setupSystemTrayControl() {
             const positionSeconds = positionMicroseconds / 1000000;
             console.log('MPRIS SetPosition (absolute):', positionSeconds, 'seconds');
 
-            if (useNativeAudio && window.aurivo?.audio) {
+            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native engine'e düşmesin)
+            if (state.activeMedia === 'web' && elements.webView) {
+                // Web/YouTube Absolute Seek
+                try {
+                    const pos = Number(positionSeconds);
+                    if (!isNaN(pos) && isFinite(pos)) {
+                        await elements.webView.executeJavaScript(`
+                            (function(){
+                                var v = document.querySelector('video, audio');
+                                if (v) v.currentTime = Math.max(0, ${pos});
+                            })();
+                        `);
+                        // Arayüzü anında güncelle (gecikmeyi önlemek için)
+                        state.webPosition = pos;
+                        updateMPRISMetadata();
+                    }
+                } catch (e) {
+                    console.warn('Web position error:', e);
+                }
+                return;
+            }
+
+            if (state.activeMedia === 'audio' && useNativeAudio && window.aurivo?.audio) {
                 try {
                     await window.aurivo.audio.seek(positionSeconds * 1000); // saniye -> milisaniye
                     console.log('Position set to:', positionSeconds, 'seconds');
                 } catch (e) {
                     console.error('SetPosition error:', e);
                 }
-            } else if (state.activeMedia === 'web' && elements.webView) {
-                // Web/YouTube Absolute Seek
-                try {
-                    const pos = Number(positionSeconds);
-                    if (!isNaN(pos)) {
-                        elements.webView.executeJavaScript(`
-                            var v = document.querySelector('video, audio');
-                            if (v) v.currentTime = ${pos};
-                        `);
-                        // Arayüzü anında güncelle (gecikmeyi önlemek için)
-                        state.webPosition = pos;
-                        updateMPRISMetadata();
-                    }
-                } catch (e) { console.warn('Web position error:', e); }
             } else {
                 const activePlayer = getActiveAudioPlayer();
-                activePlayer.currentTime = positionSeconds;
+                if (activePlayer) activePlayer.currentTime = positionSeconds;
             }
         });
     }
@@ -1150,6 +1316,17 @@ function handleWebSync(data) {
 
     state.webPosition = data.currentTime || 0;
     state.webDuration = data.duration || 0;
+
+    // timeupdate payload can carry paused state (polling)
+    if (data.type === 'timeupdate' && typeof data.paused === 'boolean') {
+        const nextPlaying = !data.paused;
+        if (state.isPlaying !== nextPlaying) {
+            state.isPlaying = nextPlaying;
+            updatePlayPauseIcon(nextPlaying);
+            updateTrayState();
+            updateMPRISMetadata();
+        }
+    }
 
     if (data.type === 'play') {
         state.isPlaying = true;
@@ -1396,13 +1573,59 @@ const fsControlState = {
     currentFps: 0, // 0 = Auto
     seeking: false,
     currentBrightness: 1.0,
-    isMenuOpen: false
+    isMenuOpen: false,
+    sleepTimerId: null,
+    currentAutoQualityRes: '720p50'
 };
 
 const fsHudState = {
     volumeTimer: null,
     brightnessTimer: null
 };
+
+function fsT(key, fallback, vars) {
+    try {
+        const v = window.i18n?.tSync?.(key, vars);
+        if (typeof v === 'string' && v && v !== key) return v;
+    } catch {
+        // ignore
+    }
+    return fallback ?? String(key);
+}
+
+function uiT(key, fallback, vars) {
+    try {
+        const v = window.i18n?.tSync?.(key, vars);
+        if (typeof v === 'string' && v && v !== key) return v;
+    } catch {
+        // ignore
+    }
+    return fallback ?? String(key);
+}
+
+function getFsOnOffLabel(enabled) {
+    return enabled ? fsT('videoFs.state.on', 'On') : fsT('videoFs.state.off', 'Off');
+}
+
+function getFsSleepLabel(minutes) {
+    const m = Number(minutes) || 0;
+    if (m > 0) return `${m} ${fsT('videoFs.sleep.minutesShort', 'min')}`;
+    return fsT('videoFs.state.off', 'Off');
+}
+
+function getFsSpeedLabel(speed) {
+    const s = Number(speed);
+    if (!Number.isFinite(s)) return fsT('videoFs.speed.normal', 'Normal');
+    return s === 1 ? fsT('videoFs.speed.normal', 'Normal') : String(s);
+}
+
+function getFsQualityLabel(quality) {
+    const q = String(quality || 'auto');
+    if (q === 'auto') {
+        return fsT('videoFs.quality.autoWith', `Auto (${fsControlState.currentAutoQualityRes})`, { res: fsControlState.currentAutoQualityRes });
+    }
+    return q;
+}
 
 let fsSettingsCaptureBound = false;
 
@@ -1666,7 +1889,43 @@ function setupFullscreenVideoControls() {
                 showFsControls();
                 stopFsHideTimer();
                 syncFsMenuOpenState();
+            } else if (setting === 'subtitles') {
+                setFsMenuVisible(document.getElementById('fsSettingsMenu'), false);
+                const sub = document.getElementById('fsSubtitlesMenu');
+                setFsMenuVisible(sub, true);
+                anchorFullscreenMenu(sub);
+                showFsControls();
+                stopFsHideTimer();
+                syncFsMenuOpenState();
+            } else if (setting === 'sleep-timer') {
+                setFsMenuVisible(document.getElementById('fsSettingsMenu'), false);
+                const sl = document.getElementById('fsSleepMenu');
+                setFsMenuVisible(sl, true);
+                anchorFullscreenMenu(sl);
+                showFsControls();
+                stopFsHideTimer();
+                syncFsMenuOpenState();
             }
+        });
+    });
+
+    // Toggle switches (stable-volume, volume-boost, cinematic-lighting, annotations)
+    document.querySelectorAll('#fsSettingsMenu .yt-toggle-switch').forEach(sw => {
+        sw.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const setting = e.currentTarget?.dataset?.setting;
+            toggleFsSetting(setting);
+        });
+    });
+    document.querySelectorAll('#fsSettingsMenu .yt-settings-item.toggle-item').forEach(row => {
+        row.addEventListener('click', (e) => {
+            // Allow clicking anywhere on the row to toggle
+            const sw = e.currentTarget?.querySelector?.('.yt-toggle-switch');
+            const setting = sw?.dataset?.setting;
+            if (!setting) return;
+            // Avoid double-toggle if the switch itself handled it
+            if (e.target?.closest?.('.yt-toggle-switch')) return;
+            toggleFsSetting(setting);
         });
     });
 
@@ -1677,6 +1936,8 @@ function setupFullscreenVideoControls() {
             if (target === 'main') {
                 setFsMenuVisible(document.getElementById('fsQualityMenu'), false);
                 setFsMenuVisible(document.getElementById('fsSpeedMenu'), false);
+                setFsMenuVisible(document.getElementById('fsSubtitlesMenu'), false);
+                setFsMenuVisible(document.getElementById('fsSleepMenu'), false);
                 const menu = document.getElementById('fsSettingsMenu');
                 setFsMenuVisible(menu, true);
                 anchorFullscreenMenu(menu);
@@ -1693,8 +1954,9 @@ function setupFullscreenVideoControls() {
             const quality = e.currentTarget.dataset.quality;
             document.querySelectorAll('#fsQualityMenu [data-quality]').forEach(i => i.classList.remove('active'));
             e.currentTarget.classList.add('active');
-            document.getElementById('currentQuality').textContent =
-                quality === 'auto' ? 'Otomatik (1080p)' : quality;
+            if (quality === 'auto') fsControlState.currentAutoQualityRes = '1080p';
+            const cq = document.getElementById('currentQuality');
+            if (cq) cq.textContent = getFsQualityLabel(quality);
             // Menüyü kapat
             setFsMenuVisible(document.getElementById('fsQualityMenu'), false);
             syncFsMenuOpenState();
@@ -1709,13 +1971,53 @@ function setupFullscreenVideoControls() {
             e.currentTarget.classList.add('active');
             elements.videoPlayer.playbackRate = speed;
             fsControlState.currentSpeed = speed;
-            document.getElementById('currentPlaybackSpeed').textContent =
-                speed === 1 ? 'Normal' : speed.toString();
+            const cps = document.getElementById('currentPlaybackSpeed');
+            if (cps) cps.textContent = getFsSpeedLabel(speed);
 
             const speedBtn = document.getElementById('fsSpeedBtn');
             if (speedBtn) speedBtn.textContent = speed.toFixed(1) + 'x';
             // Menüyü kapat
             setFsMenuVisible(document.getElementById('fsSpeedMenu'), false);
+            syncFsMenuOpenState();
+        });
+    });
+
+    // Subtitles (placeholder)
+    document.querySelectorAll('#fsSubtitlesMenu [data-subtitles]').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const value = String(e.currentTarget.dataset.subtitles || 'off');
+            if (value === 'soon') {
+                safeNotify(fsT('videoFs.notify.subtitlesSoon', 'Subtitles will be added soon.'), 'info', 2600);
+                return;
+            }
+
+            document.querySelectorAll('#fsSubtitlesMenu [data-subtitles]').forEach(i => i.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+
+            if (!state.settings?.videoFullscreen) state.settings.videoFullscreen = {};
+            state.settings.videoFullscreen.subtitles = 'off';
+            const label = document.getElementById('fsCurrentSubtitles');
+            if (label) label.textContent = fsT('videoFs.state.off', 'Off');
+            saveSettings();
+
+            setFsMenuVisible(document.getElementById('fsSubtitlesMenu'), false);
+            syncFsMenuOpenState();
+        });
+    });
+
+    // Sleep timer
+    document.querySelectorAll('#fsSleepMenu [data-sleep]').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const value = String(e.currentTarget.dataset.sleep || 'off');
+            let minutes = 0;
+            if (value !== 'off') minutes = parseInt(value, 10) || 0;
+
+            document.querySelectorAll('#fsSleepMenu [data-sleep]').forEach(i => i.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+
+            setFsSleepTimer(minutes);
+
+            setFsMenuVisible(document.getElementById('fsSleepMenu'), false);
             syncFsMenuOpenState();
         });
     });
@@ -1731,13 +2033,17 @@ function setupFullscreenVideoControls() {
         const insideAnyMenu =
             !!e.target.closest('#fsSettingsMenu') ||
             !!e.target.closest('#fsQualityMenu') ||
-            !!e.target.closest('#fsSpeedMenu');
+            !!e.target.closest('#fsSpeedMenu') ||
+            !!e.target.closest('#fsSubtitlesMenu') ||
+            !!e.target.closest('#fsSleepMenu');
 
         if (!insideAnyMenu) {
             console.log('🔧 [DEBUG] Click-outside: Menüleri kapatıyor');
             setFsMenuVisible(document.getElementById('fsSettingsMenu'), false);
             setFsMenuVisible(document.getElementById('fsQualityMenu'), false);
             setFsMenuVisible(document.getElementById('fsSpeedMenu'), false);
+            setFsMenuVisible(document.getElementById('fsSubtitlesMenu'), false);
+            setFsMenuVisible(document.getElementById('fsSleepMenu'), false);
             syncFsMenuOpenState();
         }
     });
@@ -1773,6 +2079,8 @@ function handleFullscreenChange() {
         setFsMenuVisible(document.getElementById('fsSettingsMenu'), false);
         setFsMenuVisible(document.getElementById('fsQualityMenu'), false);
         setFsMenuVisible(document.getElementById('fsSpeedMenu'), false);
+        setFsMenuVisible(document.getElementById('fsSubtitlesMenu'), false);
+        setFsMenuVisible(document.getElementById('fsSleepMenu'), false);
         syncFsMenuOpenState();
 
         // Sync initial state
@@ -1785,6 +2093,8 @@ function handleFullscreenChange() {
         setFsMenuVisible(document.getElementById('fsSettingsMenu'), false);
         setFsMenuVisible(document.getElementById('fsQualityMenu'), false);
         setFsMenuVisible(document.getElementById('fsSpeedMenu'), false);
+        setFsMenuVisible(document.getElementById('fsSubtitlesMenu'), false);
+        setFsMenuVisible(document.getElementById('fsSleepMenu'), false);
         syncFsMenuOpenState();
     }
 }
@@ -2196,6 +2506,155 @@ function updateFsControlsState() {
         volumeSlider.value = volume;
         volumeLabel.textContent = volume + '%';
     }
+
+    // Settings menu toggles/labels
+    hydrateFsSettingsUI();
+}
+
+let fsAudioCtx = null;
+let fsVideoSourceNode = null;
+let fsVideoGainNode = null;
+
+function hydrateFsSettingsUI() {
+    const prefs = state.settings?.videoFullscreen || {};
+    const stable = !!prefs.stableVolume;
+    const boost = !!prefs.volumeBoost;
+    const cinematic = prefs.cinematicLighting !== false;
+    const annotations = prefs.annotations !== false;
+
+    const setSwitchActive = (key, enabled) => {
+        const sw = document.querySelector(`#fsSettingsMenu .yt-toggle-switch[data-setting="${key}"]`);
+        if (!sw) return;
+        sw.classList.toggle('active', !!enabled);
+    };
+
+    setSwitchActive('stable-volume', stable);
+    setSwitchActive('volume-boost', boost);
+    setSwitchActive('cinematic-lighting', cinematic);
+    setSwitchActive('annotations', annotations);
+
+    const videoPage = document.getElementById('videoPage');
+    if (videoPage) videoPage.classList.toggle('fs-cinematic', !!cinematic);
+
+    const sleepLabel = document.getElementById('fsCurrentSleepTimer');
+    const mins = Number(prefs.sleepTimerMinutes || 0);
+    if (sleepLabel) sleepLabel.textContent = getFsSleepLabel(mins);
+
+    const subLabel = document.getElementById('fsCurrentSubtitles');
+    if (subLabel) subLabel.textContent = fsT('videoFs.state.off', 'Off');
+
+    const quality = document.querySelector('#fsQualityMenu .yt-radio-item.active')?.dataset?.quality || 'auto';
+    const qualityLabel = document.getElementById('currentQuality');
+    if (qualityLabel) qualityLabel.textContent = getFsQualityLabel(quality);
+
+    const speed = document.querySelector('#fsSpeedMenu .yt-radio-item.active')?.dataset?.speed || '1';
+    const speedLabel = document.getElementById('currentPlaybackSpeed');
+    if (speedLabel) speedLabel.textContent = getFsSpeedLabel(parseFloat(speed));
+}
+
+function toggleFsSetting(settingKey) {
+    if (!settingKey) return;
+    if (!state.settings) state.settings = {};
+    if (!state.settings.videoFullscreen) state.settings.videoFullscreen = {};
+
+    const prefs = state.settings.videoFullscreen;
+    if (settingKey === 'stable-volume') {
+        prefs.stableVolume = !prefs.stableVolume;
+        hydrateFsSettingsUI();
+        saveSettings();
+        safeNotify(fsT('videoFs.notify.stableVolume', 'Stable volume: {state}', { state: getFsOnOffLabel(prefs.stableVolume) }), 'info', 1600);
+        return;
+    }
+
+    if (settingKey === 'volume-boost') {
+        prefs.volumeBoost = !prefs.volumeBoost;
+        applyFsVolumeBoost(!!prefs.volumeBoost);
+        hydrateFsSettingsUI();
+        saveSettings();
+        safeNotify(fsT('videoFs.notify.volumeBoost', 'Volume boost: {state}', { state: getFsOnOffLabel(prefs.volumeBoost) }), 'info', 1600);
+        return;
+    }
+
+    if (settingKey === 'cinematic-lighting') {
+        prefs.cinematicLighting = !prefs.cinematicLighting;
+        hydrateFsSettingsUI();
+        saveSettings();
+        return;
+    }
+
+    if (settingKey === 'annotations') {
+        prefs.annotations = !prefs.annotations;
+        hydrateFsSettingsUI();
+        saveSettings();
+        safeNotify(fsT('videoFs.notify.annotationsSoon', 'Annotations: coming soon.'), 'info', 2200);
+    }
+}
+
+function ensureFsAudioGraph() {
+    if (fsAudioCtx && fsVideoGainNode) return true;
+    try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return false;
+        fsAudioCtx = fsAudioCtx || new Ctx();
+        if (!fsVideoSourceNode) fsVideoSourceNode = fsAudioCtx.createMediaElementSource(elements.videoPlayer);
+        if (!fsVideoGainNode) fsVideoGainNode = fsAudioCtx.createGain();
+        fsVideoSourceNode.connect(fsVideoGainNode);
+        fsVideoGainNode.connect(fsAudioCtx.destination);
+        return true;
+    } catch (e) {
+        console.warn('[FS] audio graph failed:', e?.message || e);
+        return false;
+    }
+}
+
+function applyFsVolumeBoost(enabled) {
+    if (!elements.videoPlayer) return;
+    const ok = ensureFsAudioGraph();
+    if (!ok || !fsVideoGainNode) return;
+    try {
+        if (fsAudioCtx && fsAudioCtx.state === 'suspended') fsAudioCtx.resume().catch(() => { /* ignore */ });
+    } catch { }
+    fsVideoGainNode.gain.value = enabled ? 1.8 : 1.0;
+}
+
+function setFsSleepTimer(minutes) {
+    if (!state.settings) state.settings = {};
+    if (!state.settings.videoFullscreen) state.settings.videoFullscreen = {};
+    state.settings.videoFullscreen.sleepTimerMinutes = Number(minutes) || 0;
+    saveSettings();
+
+    const label = document.getElementById('fsCurrentSleepTimer');
+    if (label) label.textContent = getFsSleepLabel(minutes);
+
+    if (fsControlState.sleepTimerId) {
+        clearTimeout(fsControlState.sleepTimerId);
+        fsControlState.sleepTimerId = null;
+    }
+
+    if (!minutes || minutes <= 0) {
+        safeNotify(fsT('videoFs.notify.sleepTimerOff', 'Sleep timer: Off'), 'info', 1600);
+        return;
+    }
+
+    safeNotify(
+        fsT('videoFs.notify.sleepTimerSet', 'Sleep timer: {minutes} {unit}', {
+            minutes: Number(minutes) || 0,
+            unit: fsT('videoFs.sleep.minutesShort', 'min')
+        }),
+        'info',
+        1600
+    );
+    fsControlState.sleepTimerId = setTimeout(() => {
+        try {
+            if (elements.videoPlayer && !elements.videoPlayer.paused) {
+                elements.videoPlayer.pause();
+                safeNotify(fsT('videoFs.notify.sleepTimerPaused', 'Sleep timer: Video paused.'), 'info', 2500);
+            }
+        } catch {
+            // ignore
+        }
+        fsControlState.sleepTimerId = null;
+    }, minutes * 60 * 1000);
 }
 
 function formatTime(seconds) {
@@ -2820,6 +3279,72 @@ function createTreeItem(name, path, isDirectory, icon = null) {
         handleTreeItemClick(item, path, isDirectory, e);
     });
 
+    // Mouse drag-select (hold left mouse button and drag vertically to select a range)
+    item.addEventListener('mousedown', (e) => {
+        if (isDirectory) return;
+        if (!e || e.button !== 0) return;
+        if (e.ctrlKey || e.shiftKey) return;
+
+        fileTreeDragTrack = {
+            startItem: item,
+            startX: e.clientX,
+            startY: e.clientY,
+            selecting: false
+        };
+
+        const onMove = (ev) => {
+            if (!fileTreeDragTrack) return;
+            if (!(ev.buttons & 1)) return;
+
+            const dx = ev.clientX - fileTreeDragTrack.startX;
+            const dy = ev.clientY - fileTreeDragTrack.startY;
+            const dist = Math.hypot(dx, dy);
+
+            if (!fileTreeDragTrack.selecting) {
+                if (dist < 6) return;
+                // Engage selection only when the gesture is mostly vertical.
+                if (Math.abs(dy) <= Math.abs(dx) + 4) {
+                    // Likely intent is drag&drop, don't interfere.
+                    cleanup();
+                    return;
+                }
+                fileTreeDragTrack.selecting = true;
+                blockFileTreeDragStart = true;
+
+                // Start selection from the first item.
+                document.querySelectorAll('.tree-item.file').forEach(i => i.classList.remove('selected'));
+                fileTreeDragTrack.startItem.classList.add('selected');
+                lastClickedFileItem = fileTreeDragTrack.startItem;
+            }
+
+            const el = document.elementFromPoint(ev.clientX, ev.clientY);
+            const hover = el?.closest?.('.tree-item.file');
+            if (!hover) return;
+
+            document.querySelectorAll('.tree-item.file').forEach(i => i.classList.remove('selected'));
+            selectFileRange(fileTreeDragTrack.startItem, hover);
+            lastClickedFileItem = hover;
+        };
+
+        const onUp = () => {
+            if (fileTreeDragTrack?.selecting) {
+                suppressFileItemClickOnce = true;
+            }
+            cleanup();
+        };
+
+        const cleanup = () => {
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('mouseup', onUp, true);
+            fileTreeDragTrack = null;
+            // Release dragstart block after click cycle settles.
+            setTimeout(() => { blockFileTreeDragStart = false; }, 0);
+        };
+
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('mouseup', onUp, true);
+    });
+
     // Çift tıklama - aç/çal
     item.addEventListener('dblclick', (e) => {
         e.stopPropagation();
@@ -2849,6 +3374,10 @@ let lastClickedFileItem = null;
 
 // Çoklu seçim ile tree item tıklama
 function handleTreeItemClick(item, path, isDirectory, e) {
+    if (suppressFileItemClickOnce) {
+        suppressFileItemClickOnce = false;
+        return;
+    }
     console.log('Tree item tıklandı:', path, 'Klasör:', isDirectory);
 
     // Klasörse sadece aç
@@ -3129,6 +3658,31 @@ function removeFromPlaylist(index) {
 
     renderPlaylist();
     savePlaylistToDisk();
+}
+
+function clearPlaylistAll() {
+    // Only stop audio if it was coming from the playlist
+    if (state.activeMedia === 'audio' && state.currentIndex !== -1) {
+        try {
+            stopAudio();
+        } catch {
+            // ignore
+        }
+    }
+
+    state.playlist = [];
+    state.currentIndex = -1;
+    state.isPlaying = false;
+    updatePlayPauseIcon(false);
+
+    if (elements.nowPlayingLabel) {
+        elements.nowPlayingLabel.textContent = 'Şu An Çalınan: Aurivo Player - Hazır';
+    }
+
+    renderPlaylist();
+    savePlaylistToDisk();
+    updateTrayState();
+    updateMPRISMetadata();
 }
 
 function handleFileDrop(e) {
@@ -4600,9 +5154,9 @@ async function prefillDownloadFields() {
 
             // 2) Now playing label
             const label = String(elements.nowPlayingLabel?.textContent || '').trim();
-            const prefix = 'Şu An Çalınan:';
-            if (label.startsWith(prefix)) {
-                const t = normalizeWebTitle(label.slice(prefix.length).trim());
+            const idx = label.indexOf(':');
+            if (idx >= 0) {
+                const t = normalizeWebTitle(label.slice(idx + 1).trim());
                 if (t && !isGenericTitle(t)) {
                     elements.downloadTitle.value = t;
                     return;
@@ -4627,13 +5181,18 @@ function setDownloadMode(mode) {
     if (elements.downloadTabVideo && elements.downloadTabAudio) {
         elements.downloadTabVideo.classList.toggle('active', downloadState.mode === 'video');
         elements.downloadTabAudio.classList.toggle('active', downloadState.mode === 'audio');
+        elements.downloadTabVideo.setAttribute('aria-selected', downloadState.mode === 'video' ? 'true' : 'false');
+        elements.downloadTabAudio.setAttribute('aria-selected', downloadState.mode === 'audio' ? 'true' : 'false');
     }
     if (elements.downloadOptionsVideo && elements.downloadOptionsAudio) {
         elements.downloadOptionsVideo.classList.toggle('hidden', downloadState.mode !== 'video');
         elements.downloadOptionsAudio.classList.toggle('hidden', downloadState.mode !== 'audio');
     }
     if (elements.downloadCardModeTitle) {
-        elements.downloadCardModeTitle.textContent = downloadState.mode === 'video' ? 'Video İndir' : 'Sesi çıkart';
+        elements.downloadCardModeTitle.textContent =
+            downloadState.mode === 'video'
+                ? uiT('downloadUi.cardMode.video', 'Download Video')
+                : uiT('downloadUi.cardMode.audio', 'Extract Audio');
     }
 
     // Advanced rows that are mode-specific
@@ -4644,7 +5203,7 @@ function setDownloadMode(mode) {
 
 function resetDownloadProgressUI() {
     if (elements.downloadProgressBox) elements.downloadProgressBox.classList.add('hidden');
-    if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = 'Hazır';
+    if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = uiT('downloadUi.progress.ready', 'Ready');
     if (elements.downloadProgressPercent) elements.downloadProgressPercent.textContent = '0%';
     if (elements.downloadProgressFill) elements.downloadProgressFill.style.width = '0%';
     if (elements.downloadCancelActiveBtn) elements.downloadCancelActiveBtn.classList.add('hidden');
@@ -4660,7 +5219,11 @@ function setDownloadRunningUI(isRunning) {
     if (elements.downloadStartBtn) elements.downloadStartBtn.classList.toggle('hidden', downloadState.isRunning);
     if (elements.downloadStopBtn) elements.downloadStopBtn.classList.toggle('hidden', !downloadState.isRunning);
     if (elements.downloadMoreBtn) elements.downloadMoreBtn.classList.toggle('hidden', downloadState.isRunning);
-    if (elements.downloadCancelBtn) elements.downloadCancelBtn.textContent = downloadState.isRunning ? 'Gizle' : 'Kapat';
+    if (elements.downloadCancelBtn) {
+        elements.downloadCancelBtn.textContent = downloadState.isRunning
+            ? uiT('downloadUi.buttons.hide', 'Hide')
+            : uiT('downloadUi.buttons.close', 'Close');
+    }
     if (elements.downloadCancelActiveBtn) elements.downloadCancelActiveBtn.classList.toggle('hidden', !downloadState.isRunning);
     if (downloadState.isRunning) setDownloadView('basic');
 }
@@ -4673,6 +5236,10 @@ async function openDownloadModal() {
     setDownloadMode(downloadState.mode);
     setDownloadView('basic');
     if (!downloadState.isRunning) resetDownloadProgressUI();
+    try {
+        const body = document.querySelector('#downloadPage .download-body-v2');
+        if (body) body.scrollTop = 0;
+    } catch { }
     await prefillDownloadFields();
 }
 
@@ -4821,7 +5388,12 @@ function setDownloadView(view) {
     if (elements.downloadPageBasic) elements.downloadPageBasic.classList.toggle('hidden', v !== 'basic');
     if (elements.downloadPageAdvanced) elements.downloadPageAdvanced.classList.toggle('hidden', v !== 'advanced');
     if (elements.downloadViewBackBtn) elements.downloadViewBackBtn.classList.toggle('hidden', v !== 'advanced');
-    if (elements.downloadViewTitle) elements.downloadViewTitle.textContent = v === 'advanced' ? 'Gelişmiş' : 'Basit';
+    if (elements.downloadViewTitle) {
+        elements.downloadViewTitle.textContent =
+            v === 'advanced'
+                ? uiT('downloadUi.view.advanced', 'Advanced')
+                : uiT('downloadUi.view.basic', 'Basic');
+    }
 }
 
 function setupDownloadModalDrag() {
@@ -4886,13 +5458,13 @@ function setupDownloadModalDrag() {
 
 async function startDownloadFromModal() {
     if (!window.aurivo?.download?.start) {
-        safeNotify('İndirme API bulunamadı (window.aurivo.download.start)', 'error');
+        safeNotify(uiT('downloadUi.notify.apiMissing', 'Download API not found (window.aurivo.download.start)'), 'error');
         return;
     }
 
     const url = String(elements.downloadUrl?.value || '').trim();
     if (!url) {
-        safeNotify('Lütfen bir URL girin.', 'warning');
+        safeNotify(uiT('downloadUi.notify.enterUrl', 'Please enter a URL.'), 'warning');
         return;
     }
 
@@ -4901,17 +5473,17 @@ async function startDownloadFromModal() {
     try {
         const prefDir = String(state?.settings?.download?.downloadDir || '').trim();
         const result = await window.aurivo?.dialog?.openFolder?.({
-            title: 'İndirme Klasörü Seç',
+            title: uiT('downloadUi.dialog.selectFolderTitle', 'Select Download Folder'),
             defaultPath: prefDir || undefined
         });
         if (!result?.path) {
-            safeNotify('İndirme klasörü seçilmedi.', 'warning');
+            safeNotify(uiT('downloadUi.notify.folderNotSelected', 'No download folder selected.'), 'warning');
             return;
         }
         outputDir = result.path;
         if (elements.downloadFolder) elements.downloadFolder.value = outputDir;
     } catch (e) {
-        safeNotify('Klasör seçilemedi: ' + (e?.message || e), 'error');
+        safeNotify(uiT('downloadUi.notify.folderSelectFailed', "Couldn't select folder: {error}", { error: e?.message || e }), 'error');
         return;
     }
 
@@ -4939,17 +5511,17 @@ async function startDownloadFromModal() {
 
     resetDownloadProgressUI();
     if (elements.downloadProgressBox) elements.downloadProgressBox.classList.remove('hidden');
-    if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = 'Başlatılıyor...';
+    if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = uiT('downloadUi.progress.starting', 'Starting...');
     setDownloadRunningUI(true);
 
     try {
         const res = await window.aurivo.download.start(payload);
         downloadState.activeId = res?.id ?? null;
-        if (!downloadState.activeId) throw new Error('Download id alınamadı');
-        if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = 'İndiriliyor...';
+        if (!downloadState.activeId) throw new Error('Download id not received');
+        if (elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = uiT('downloadUi.progress.downloading', 'Downloading...');
     } catch (e) {
         setDownloadRunningUI(false);
-        safeNotify('İndirme başlatılamadı: ' + (e?.message || e), 'error');
+        safeNotify(uiT('downloadUi.notify.startFailed', "Couldn't start download: {error}", { error: e?.message || e }), 'error');
     }
 }
 
@@ -4978,11 +5550,15 @@ function setupDownloadIPC() {
         setDownloadRunningUI(false);
         const ok = Boolean(payload.success);
         if (elements.downloadProgressLabel) {
-            elements.downloadProgressLabel.textContent = ok ? 'İndirme tamamlandı' : 'İndirme hatası';
+            elements.downloadProgressLabel.textContent = ok
+                ? uiT('downloadUi.progress.done', 'Download complete')
+                : uiT('downloadUi.progress.error', 'Download error');
         }
         if (!ok) {
             const msg = String(payload.message || payload.code || '').trim();
-            if (msg && elements.downloadProgressLabel) elements.downloadProgressLabel.textContent = 'İndirme hatası';
+            if (msg && elements.downloadProgressLabel) {
+                elements.downloadProgressLabel.textContent = uiT('downloadUi.progress.error', 'Download error');
+            }
             if (elements.downloadDetails && Array.isArray(payload.tail) && payload.tail.length) {
                 elements.downloadDetails.textContent = payload.tail.join('\n');
                 if (elements.downloadDetailsBtn) elements.downloadDetailsBtn.classList.remove('hidden');
@@ -6724,6 +7300,7 @@ function updateRainbowSlider(slider, percent) {
 }
 
 function updateRainbowSliderColors(slider, percent) {
+    const isRtl = document?.documentElement?.dir === 'rtl' || document?.body?.classList?.contains('rtl');
     // Gökkuşağı renkleri - hue değerine göre dönen
     const colors = [
         `hsl(${(rainbowHue + 0) % 360}, 100%, 50%)`,
@@ -6739,7 +7316,8 @@ function updateRainbowSliderColors(slider, percent) {
     const emptyColor = 'rgba(40, 40, 40, 0.25)';
 
     // Background: Sol kısım renkli gradient, sağ kısım saydam
-    const trackBackground = `linear-gradient(to right, 
+    const gradientDir = isRtl ? 'to left' : 'to right';
+    const trackBackground = `linear-gradient(${gradientDir}, 
         ${colors[0]} 0%, 
         ${colors[1]} ${percent * 0.2}%, 
         ${colors[2]} ${percent * 0.4}%, 
@@ -8042,7 +8620,17 @@ const EQController = {
         const preset = this.customPresets[key];
         if (!preset) return;
 
-        if (confirm(`"${preset.name}" presetini silmek istediğinize emin misiniz?`)) {
+        const ask = async () => {
+            try {
+                if (window.i18n?.t) return await window.i18n.t('confirm.deletePreset', { name: preset.name });
+            } catch {
+                // ignore
+            }
+            return `"${preset.name}" presetini silmek istediğinize emin misiniz?`;
+        };
+
+        ask().then((msg) => {
+            if (!confirm(msg)) return;
             delete this.customPresets[key];
             this.saveCustomPresets();
             this.populatePresetSelect();
@@ -8056,8 +8644,16 @@ const EQController = {
                 }
             }
 
-            showNotification(`"${preset.name}" silindi`, 'info');
-        }
+            const notify = async () => {
+                try {
+                    if (window.i18n?.t) return await window.i18n.t('notifications.presetDeleted', { name: preset.name });
+                } catch {
+                    // ignore
+                }
+                return `"${preset.name}" silindi`;
+            };
+            notify().then((text) => showNotification(text, 'info'));
+        });
     },
 
     // Export presets to JSON file
