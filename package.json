@@ -27,12 +27,61 @@
     "electronVersion": "28.3.3",
     "icon": "icons/aurivo_alt_boldA_transparent_1024.png",
     "artifactName": "Aurivo-${version}-${os}-${arch}.${ext}",
+    "protocols": [
+      {
+        "name": "Aurivo Media Player",
+        "schemes": [
+          "aurivo"
+        ]
+      }
+    ],
+    "fileAssociations": [
+      {
+        "name": "Aurivo Audio",
+        "description": "Aurivo Media Player Audio",
+        "role": "Viewer",
+        "icon": "icons/aurivo.ico",
+        "ext": [
+          "mp3",
+          "wav",
+          "flac",
+          "aac",
+          "ogg",
+          "m4a",
+          "opus",
+          "aiff",
+          "wma"
+        ]
+      },
+      {
+        "name": "Aurivo Video",
+        "description": "Aurivo Media Player Video",
+        "role": "Viewer",
+        "icon": "icons/aurivo.ico",
+        "ext": [
+          "mp4",
+          "mkv",
+          "avi",
+          "mov",
+          "wmv",
+          "webm",
+          "m4v"
+        ]
+      }
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/*.dll",
+      "**/*.so",
+      "**/*.dylib"
+    ],
     "files": [
       "**/*",
       "!native/build/Release/obj.target/**",
       "!native/build/Release/.deps/**",
       "!native/**/*.o",
       "!native/**/*.a",
+      "!libs/**",
       "native/build/Release/*.node",
       "native/build/Release/*.so",
       "native/build/Release/*.dll",
@@ -48,10 +97,6 @@
           "*.dll",
           "*.dylib"
         ]
-      },
-      {
-        "from": "/usr/bin/ffmpeg",
-        "to": "bin/ffmpeg"
       }
     ],
     "linux": {
@@ -62,6 +107,12 @@
       "category": "AudioVideo",
       "executableName": "aurivo",
       "icon": "icons/aurivo_alt_boldA_transparent_1024.png",
+      "extraResources": [
+        {
+          "from": "/usr/bin/ffmpeg",
+          "to": "bin/ffmpeg"
+        }
+      ],
       "extraFiles": [
         {
           "from": "native/build/Release",
@@ -95,7 +146,32 @@
       ],
       "icon": "icons/aurivo.ico",
       "executableName": "Aurivo",
+      "requestedExecutionLevel": "asInvoker",
       "extraResources": [
+        {
+          "from": "icons/aurivo.ico",
+          "to": "icons/aurivo.ico"
+        },
+        {
+          "from": "icons/aurivo_256.png",
+          "to": "icons/aurivo_256.png"
+        },
+        {
+          "from": "icons/aurivo_logo.bmp",
+          "to": "icons/aurivo_logo.bmp"
+        },
+        {
+          "from": "third_party/projectm/presets",
+          "to": "third_party/projectm/presets"
+        },
+        {
+          "from": "native-dist",
+          "to": "native-dist",
+          "filter": [
+            "*.exe",
+            "*.dll"
+          ]
+        },
         {
           "from": "libs/windows",
           "to": "native/build/Release",
@@ -106,16 +182,6 @@
         {
           "from": "third_party/ffmpeg/ffmpeg.exe",
           "to": "bin/ffmpeg.exe"
-        }
-      ],
-      "extraFiles": [
-        {
-          "from": "native/build/Release",
-          "to": "resources/native/build/Release",
-          "filter": [
-            "*.dll",
-            "*.node"
-          ]
         }
       ]
     },

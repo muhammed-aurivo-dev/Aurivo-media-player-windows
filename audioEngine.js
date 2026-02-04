@@ -4,31 +4,75 @@
 // ============================================
 
 const path = require('path');
+const fs = require('fs');
 
-// Native addon'u yükle
+// Native addon'u lazy-load et (Windows'ta eksik DLL durumunda uygulamanın donup kalmaması için)
 let nativeAudio = null;
 let isNativeAvailable = false;
+let lastNativeLoadError = null;
+let loadedAddonPath = null;
 
-// Olası native addon konumları (öncelik sırasına göre)
-const addonPaths = [
-    path.join(__dirname, 'native', 'build', 'Release', 'aurivo_audio.node'),  // Development
-    path.join(__dirname, 'native-dist', 'aurivo_audio.node'),       // Dağıtım
-    path.join(__dirname, 'build', 'Release', 'aurivo_audio.node'),  // Alternatif
-];
-
-for (const addonPath of addonPaths) {
-    try {
-        nativeAudio = require(addonPath);
-        isNativeAvailable = true;
-        console.log('✓ Aurivo C++ Audio Engine yüklendi:', addonPath);
-        break;
-    } catch (error) {
-        // Bir sonraki path'i dene
-    }
+function uniq(arr) {
+    return [...new Set((arr || []).filter(Boolean))];
 }
 
-if (!isNativeAvailable) {
+function getAddonCandidatePaths() {
+    const name = 'aurivo_audio.node';
+    const out = [];
+
+    // Packaged: prefer files copied as extraResources
+    if (process.resourcesPath) {
+        out.push(path.join(process.resourcesPath, 'native', 'build', 'Release', name));
+        // electron-builder default native unpack dir
+        out.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'native', 'build', 'Release', name));
+        out.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'Release', name));
+    }
+
+    // Dev / fallback
+    out.push(path.join(__dirname, 'native', 'build', 'Release', name));
+    out.push(path.join(__dirname, 'native-dist', name));
+    out.push(path.join(__dirname, 'build', 'Release', name));
+
+    return uniq(out);
+}
+
+function prependToWindowsPath(dir) {
+    if (!dir || process.platform !== 'win32') return;
+    const cur = process.env.PATH || '';
+    const parts = cur.split(';').filter(Boolean);
+    if (parts.includes(dir)) return;
+    process.env.PATH = `${dir};${cur}`;
+}
+
+function tryLoadNativeAddon() {
+    if (nativeAudio) return true;
+    lastNativeLoadError = null;
+
+    const addonPaths = getAddonCandidatePaths();
+    let lastErr = null;
+
+    for (const addonPath of addonPaths) {
+        try {
+            if (!fs.existsSync(addonPath)) continue;
+            prependToWindowsPath(path.dirname(addonPath));
+            nativeAudio = require(addonPath);
+            isNativeAvailable = true;
+            loadedAddonPath = addonPath;
+            console.log('✓ Aurivo C++ Audio Engine yüklendi:', addonPath);
+            return true;
+        } catch (error) {
+            lastErr = error;
+        }
+    }
+
+    isNativeAvailable = false;
+    loadedAddonPath = null;
+    lastNativeLoadError = lastErr;
     console.warn('⚠ C++ Audio Engine yüklenemedi, HTML5 Audio kullanılacak');
+    if (process.platform === 'win32' && lastErr) {
+        console.warn('[NativeAudio] Windows yükleme hatası:', lastErr.message || lastErr);
+    }
+    return false;
 }
 
 class AurivoAudioEngine {
@@ -47,7 +91,7 @@ class AurivoAudioEngine {
      * @returns {boolean} Başarılı mı?
      */
     initialize() {
-        if (!isNativeAvailable) {
+        if (!tryLoadNativeAddon() || !isNativeAvailable) {
             console.warn('Native audio mevcut değil');
             return false;
         }
@@ -1832,6 +1876,7 @@ class AurivoAudioEngine {
      * @returns {boolean}
      */
     static isAvailable() {
+        tryLoadNativeAddon();
         return isNativeAvailable;
     }
 }
@@ -1842,5 +1887,8 @@ const audioEngine = new AurivoAudioEngine();
 module.exports = {
     AurivoAudioEngine,
     audioEngine,
-    isNativeAvailable
+    get isNativeAvailable() { return isNativeAvailable; },
+    get loadedAddonPath() { return loadedAddonPath; },
+    get lastNativeLoadError() { return lastNativeLoadError; },
+    _tryLoadNativeAddon: tryLoadNativeAddon
 };

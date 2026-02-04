@@ -36,6 +36,10 @@ process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
 });
 
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+});
+
 function safeStdoutLine(line) {
     try {
         process.stdout.write(String(line) + '\n');
@@ -57,6 +61,37 @@ app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,Media
 if (process.platform === 'win32') {
     app.setAppUserModelId('com.aurivo.mediaplayer');
 }
+
+function prependToProcessPath(dir) {
+    if (!dir) return;
+    const delimiter = path.delimiter || (process.platform === 'win32' ? ';' : ':');
+    const cur = process.env.PATH || '';
+    const parts = cur.split(delimiter).filter(Boolean);
+    if (parts.includes(dir)) return;
+    process.env.PATH = `${dir}${delimiter}${cur}`;
+}
+
+function ensureWindowsRuntimePaths() {
+    if (process.platform !== 'win32') return;
+
+    // PATH: make sure bundled native deps / ffmpeg are discoverable for child processes & DLL loader.
+    try {
+        if (process.resourcesPath) {
+            prependToProcessPath(path.join(process.resourcesPath, 'bin'));
+            prependToProcessPath(path.join(process.resourcesPath, 'native', 'build', 'Release'));
+            prependToProcessPath(path.join(process.resourcesPath, 'native-dist'));
+        }
+
+        // Dev fallbacks
+        prependToProcessPath(path.join(__dirname, 'third_party', 'ffmpeg'));
+        prependToProcessPath(path.join(__dirname, 'native', 'build', 'Release'));
+        prependToProcessPath(path.join(__dirname, 'native-dist'));
+    } catch (e) {
+        console.warn('[WIN] PATH prep failed:', e?.message || e);
+    }
+}
+
+ensureWindowsRuntimePaths();
 // ============================================
 // WAYLAND / X11 OTOMATIK ALGILAMA
 // ============================================
@@ -66,71 +101,66 @@ function detectDisplayServer() {
 
     const waylandDisplay = process.env.WAYLAND_DISPLAY;
     const xdgSessionType = process.env.XDG_SESSION_TYPE;
-    const useNativeWayland = process.env.ELECTRON_OZONE_PLATFORM_HINT;
+    const display = process.env.DISPLAY;
+    const ozoneHint = process.env.ELECTRON_OZONE_PLATFORM_HINT;
+
+    const appendCsvSwitch = (name, csv) => {
+        if (!app?.commandLine || !csv) return;
+        try {
+            const cur = app.commandLine.getSwitchValue(name) || '';
+            const set = new Set(
+                cur
+                    .split(',')
+                    .concat(String(csv).split(','))
+                    .map(s => String(s || '').trim())
+                    .filter(Boolean)
+            );
+            app.commandLine.appendSwitch(name, [...set].join(','));
+        } catch {
+            // best-effort
+        }
+    };
 
     // Kullanıcı manuel olarak ayarladıysa kullan
     const forceSoftware = process.env.AURIVO_SOFTWARE_RENDER === '1' || process.env.AURIVO_SOFTWARE_RENDER === 'true';
     const forceGpu = process.env.AURIVO_FORCE_GPU === '1' || process.env.AURIVO_FORCE_GPU === 'true';
 
-    if (useNativeWayland === 'wayland') {
-        console.log('💻 Display Server: Wayland (manuel)');
-        app.commandLine.appendSwitch('ozone-platform', 'wayland');
+    const wantWayland =
+        ozoneHint === 'wayland' ||
+        (xdgSessionType && String(xdgSessionType).toLowerCase() === 'wayland') ||
+        !!waylandDisplay;
+    const wantX11 =
+        ozoneHint === 'x11' ||
+        (xdgSessionType && String(xdgSessionType).toLowerCase() === 'x11') ||
+        (!!display && !wantWayland);
+
+    if (wantWayland) {
+        console.log('💻 Display Server: Wayland');
         app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
-        app.commandLine.appendSwitch('use-gl', 'egl-angle');
-        if (!forceSoftware) {
-            app.commandLine.appendSwitch('use-angle', 'opengl');
-            app.commandLine.appendSwitch('ignore-gpu-blocklist');
-        }
-        app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations,VaapiVideoDecoder');
-        if (forceSoftware) {
-            app.commandLine.appendSwitch('disable-gpu');
-            app.commandLine.appendSwitch('disable-gpu-compositing');
-            app.commandLine.appendSwitch('use-gl', 'swiftshader');
-            app.commandLine.appendSwitch('disable-features', 'UseSkiaRenderer');
-        } else if (forceGpu) {
-            app.commandLine.appendSwitch('use-angle', 'gl');
-            app.commandLine.appendSwitch('ignore-gpu-blocklist');
-        }
-        process.env.ELECTRON_ENABLE_WAYLAND = '1';
-        process.env.OZONE_PLATFORM = 'wayland';
-        return;
+        appendCsvSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations,VaapiVideoDecoder');
+    } else if (wantX11) {
+        console.log('💻 Display Server: X11');
+        app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
+        appendCsvSwitch('enable-features', 'VaapiVideoDecoder');
+    } else {
+        console.log('💻 Display Server: auto');
+        app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+        appendCsvSwitch('enable-features', 'VaapiVideoDecoder');
     }
 
-    if (useNativeWayland === 'x11') {
-        console.log('💻 Display Server: X11 (manuel)');
-        process.env.ELECTRON_OZONE_PLATFORM_HINT = 'x11';
-        app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
-        return;
-    }
-
-    let enableFeatures = 'VaapiVideoDecoder';
-
-    // Wayland zorunlu (X11 tamamen devre dışı)
-    console.log('💻 Display Server: Wayland (forced)');
-    app.commandLine.appendSwitch('ozone-platform', 'wayland');
-    app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
-    app.commandLine.appendSwitch('use-gl', 'egl-angle');
     if (!forceSoftware) {
-        app.commandLine.appendSwitch('use-angle', 'opengl');
+        // GPU blacklist'e takılan makinelerde siyah pencere olabiliyor
         app.commandLine.appendSwitch('ignore-gpu-blocklist');
     }
-    app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations,VaapiVideoDecoder');
+
     if (forceSoftware) {
         app.commandLine.appendSwitch('disable-gpu');
         app.commandLine.appendSwitch('disable-gpu-compositing');
         app.commandLine.appendSwitch('use-gl', 'swiftshader');
-        app.commandLine.appendSwitch('disable-features', 'UseSkiaRenderer');
+        appendCsvSwitch('disable-features', 'UseSkiaRenderer');
     } else if (forceGpu) {
-        app.commandLine.appendSwitch('use-angle', 'gl');
         app.commandLine.appendSwitch('ignore-gpu-blocklist');
     }
-    process.env.ELECTRON_OZONE_PLATFORM_HINT = 'wayland';
-    process.env.ELECTRON_ENABLE_WAYLAND = '1';
-    process.env.OZONE_PLATFORM = 'wayland';
-    if (!process.env.XDG_SESSION_TYPE) {
-        process.env.XDG_SESSION_TYPE = 'wayland';
-    }
-    enableFeatures = 'UseOzonePlatform,WaylandWindowDecorations,VaapiVideoDecoder';
 
     // Genel GPU ayarları (performans için) - app hazır olduğunda uygula
     if (app && app.commandLine) {
@@ -185,20 +215,45 @@ try {
     console.error('node-id3 yüklenemedi:', e.message);
 }
 
-// C++ Audio Engine yükle
+// C++ Audio Engine (lazy init - Windows'ta eksik DLL durumunda UI'nin donmaması için)
 let audioEngine = null;
 let isNativeAudioAvailable = false;
-try {
-    const { audioEngine: engine, isNativeAvailable } = require('./audioEngine');
-    audioEngine = engine;
-    isNativeAudioAvailable = isNativeAvailable;
+let audioEngineModule = null;
+let nativeAudioInitAttempted = false;
 
-    if (isNativeAudioAvailable) {
-        audioEngine.initialize();
-        console.log('✓ C++ Aurivo Audio Engine aktif');
+function initNativeAudioEngineSafe({ force = false } = {}) {
+    if (nativeAudioInitAttempted && !force) return isNativeAudioAvailable;
+    nativeAudioInitAttempted = true;
+
+    try {
+        audioEngineModule = require('./audioEngine');
+        audioEngine = audioEngineModule?.audioEngine || null;
+
+        if (!audioEngine || typeof audioEngine.initialize !== 'function') {
+            isNativeAudioAvailable = false;
+            return false;
+        }
+
+        const ok = !!audioEngine.initialize();
+        isNativeAudioAvailable = !!ok && !!audioEngineModule?.isNativeAvailable;
+
+        if (isNativeAudioAvailable) {
+            console.log('✓ C++ Aurivo Audio Engine aktif');
+        } else {
+            console.warn('⚠ Native audio başlatılamadı, HTML5 Audio kullanılacak');
+            const err = audioEngineModule?.lastNativeLoadError;
+            if (process.platform === 'win32' && err) {
+                console.warn('[NativeAudio] Detay:', err.message || err);
+            }
+        }
+
+        return isNativeAudioAvailable;
+    } catch (e) {
+        isNativeAudioAvailable = false;
+        audioEngine = null;
+        console.warn('C++ Audio Engine yüklenemedi:', e?.message || e);
+        return false;
     }
-} catch (e) {
-    console.warn('C++ Audio Engine yüklenemedi:', e.message);
 }
 
 let mainWindow;
@@ -623,6 +678,22 @@ function createWindow() {
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+        console.error('[WEB] did-fail-load:', { errorCode, errorDescription, validatedURL });
+    });
+
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        console.error('[WEB] render-process-gone:', details);
+    });
+
+    mainWindow.webContents.on('unresponsive', () => {
+        console.warn('[WEB] renderer unresponsive');
+    });
+
+    mainWindow.webContents.on('responsive', () => {
+        console.log('[WEB] renderer responsive');
+    });
+
     // İlk açılışta pencereyi zorla görünür yap
     mainWindow.show();
     mainWindow.center();
@@ -656,6 +727,15 @@ function createWindow() {
                 mainWindow.setAlwaysOnTop(false);
             }
         }, 1500);
+
+        // Native audio init'i UI yüklendikten sonra dene (başarısız olursa uygulama akışı bozulmasın)
+        setTimeout(() => {
+            try {
+                initNativeAudioEngineSafe();
+            } catch (e) {
+                console.warn('[NativeAudio] init error:', e?.message || e);
+            }
+        }, 0);
     });
     setTimeout(() => {
         if (mainWindow && !mainWindow.isVisible()) {
@@ -1251,33 +1331,38 @@ function startVisualizer() {
 
     if (!fs.existsSync(exePath)) {
         console.error('[Visualizer] executable bulunamadı:', exePath);
-        dialog.showErrorBox(
-            tMainSync('visualizer.notFoundTitle'),
-            tMainSync('visualizer.notFoundBody', { path: exePath })
-        );
+        const title = tMainSync('visualizer.notFoundTitle') || 'Visualizer bulunamadı';
+        let body = tMainSync('visualizer.notFoundBody', { path: exePath }) || `Dosya bulunamadı:\n${exePath}`;
+        if (process.platform === 'win32') {
+            const expected = process.resourcesPath
+                ? path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe')
+                : 'resources\\native-dist\\aurivo-projectm-visualizer.exe';
+            body += `\n\nWindows için Visualizer (.exe) bulunamadı.\nBeklenen konum:\n${expected}\n\nÇözüm:\n- Uygulamayı yeniden kurmayı deneyin.\n- Eğer geliştirme build kullanıyorsanız, Visualizer'ı derleyip bu dizine kopyalayın.\n- Paketleme sırasında \"native-dist\" ve \"third_party/projectm/presets\" extraResources içine dahil olmalı.`;
+        }
+        dialog.showErrorBox(title, body);
         return false;
     }
 
     const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
 
-	    const env = {
-	        ...process.env,
-	        PROJECTM_PRESETS_PATH: presetsPath,
-	        AURIVO_VISUALIZER_ICON: visualizerIconPath,
-	        // UI language for the native visualizer (SDL2/ImGui)
-	        AURIVO_LANG: getUiLanguageSync(),
-	        // Default main window size (user can resize; next open returns to this default).
-	        AURIVO_VIS_MAIN_W: process.env.AURIVO_VIS_MAIN_W || '900',
-	        AURIVO_VIS_MAIN_H: process.env.AURIVO_VIS_MAIN_H || '650',
-	        // SDL2 için gerekli display variables (Wayland öncelikli)
-	        DISPLAY: process.env.DISPLAY || '',
-        WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || '',
-        XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE || 'wayland',
-        // Wayland native için
-        SDL_VIDEODRIVER: process.env.WAYLAND_DISPLAY ? 'wayland' : 'x11',
-        // Mesa software rendering (debugging - remove for production)
-        // LIBGL_ALWAYS_SOFTWARE: '1'
+    const env = {
+        ...process.env,
+        PROJECTM_PRESETS_PATH: presetsPath,
+        AURIVO_VISUALIZER_ICON: visualizerIconPath,
+        // UI language for the native visualizer (SDL2/ImGui)
+        AURIVO_LANG: getUiLanguageSync(),
+        // Default main window size (user can resize; next open returns to this default).
+        AURIVO_VIS_MAIN_W: process.env.AURIVO_VIS_MAIN_W || '900',
+        AURIVO_VIS_MAIN_H: process.env.AURIVO_VIS_MAIN_H || '650'
     };
+
+    // Linux: SDL2 için display variables (Wayland/X11)
+    if (process.platform === 'linux') {
+        env.DISPLAY = process.env.DISPLAY || '';
+        env.WAYLAND_DISPLAY = process.env.WAYLAND_DISPLAY || '';
+        env.XDG_SESSION_TYPE = process.env.XDG_SESSION_TYPE || (process.env.WAYLAND_DISPLAY ? 'wayland' : 'x11');
+        env.SDL_VIDEODRIVER = process.env.WAYLAND_DISPLAY ? 'wayland' : 'x11';
+    }
 
     try {
         console.log('[Visualizer] starting:', exePath);
@@ -1449,13 +1534,13 @@ app.whenReady().then(async () => {
     app.commandLine.appendSwitch('enable-gpu-rasterization');
     app.commandLine.appendSwitch('enable-zero-copy');
 
-    installAppMenu();
-    createWindow();
-    createTray();
-    createMPRIS();
+    try { installAppMenu(); } catch (e) { console.error('[APP] installAppMenu error:', e); }
+    try { createWindow(); } catch (e) { console.error('[APP] createWindow error:', e); }
+    try { createTray(); } catch (e) { console.error('[APP] createTray error:', e); }
+    try { createMPRIS(); } catch (e) { console.error('[APP] createMPRIS error:', e); }
 
     // Kayıtlı EQ32 presetini açılışta uygula
-    await applyPersistedEq32SfxFromSettings();
+    try { await applyPersistedEq32SfxFromSettings(); } catch (e) { console.error('[SFX] applyPersistedEq32SfxFromSettings error:', e); }
 
     app.on('activate', () => {
         if (mainWindow) {
@@ -1465,6 +1550,8 @@ app.whenReady().then(async () => {
             createWindow();
         }
     });
+}).catch((e) => {
+    console.error('[APP] whenReady error:', e);
 });
 
 app.on('window-all-closed', () => {
@@ -2000,6 +2087,15 @@ async function extractCoverWithFFmpeg(filePath) {
             }
         }
 
+        // Windows: ffmpeg klasörünü PATH'e ekle (dll/loader & codec uyumluluğu için)
+        if (process.platform === 'win32') {
+            try {
+                prependToProcessPath(path.dirname(ffmpegPath));
+            } catch {
+                // ignore
+            }
+        }
+
         // ffmpeg ile embedded image'ı pipe'la al
         const ffmpeg = spawn(ffmpegPath, [
             '-i', filePath,
@@ -2097,11 +2193,22 @@ async function extractID3Cover(filePath) {
 
 // Native audio engine mevcut mu?
 ipcMain.handle('audio:isNativeAvailable', () => {
+    // Renderer preload genelde ilk açılışta bunu çağırır; burada lazy-init dene.
+    try {
+        if (!isNativeAudioAvailable) {
+            initNativeAudioEngineSafe();
+        }
+    } catch (e) {
+        // best-effort
+    }
     return isNativeAudioAvailable;
 });
 
 // Dosya yükle
 ipcMain.handle('audio:loadFile', async (event, filePath) => {
+    if (!audioEngine || !isNativeAudioAvailable) {
+        try { initNativeAudioEngineSafe(); } catch { }
+    }
     if (!audioEngine || !isNativeAudioAvailable) {
         console.warn('[MAIN] Native audio yok, loadFile atlandı');
         return { success: false, error: 'Native audio yok' };
@@ -3627,8 +3734,8 @@ ipcMain.handle('audio:setBassBoost', (event, value) => {
 // AUTOEQ PRESETS IPC HANDLERS
 // ============================================
 
-// Preset klasörü yolu
-const presetsPath = path.join(__dirname, 'resources', 'autoeq');
+// Preset klasörü yolu (packaged/app.asar içinden okunur)
+const presetsPath = getAppFilePath(path.join('resources', 'autoeq'));
 
 function clampNumber(v, min, max) {
     const n = Number(v);
@@ -3674,7 +3781,7 @@ function makeBandsFromPoints(points, minDb = -12, maxDb = 12) {
 
 function loadAurivoEQBuiltins() {
     // JSON ile ayarlanabilir (ince ayar için)
-    const filePath = path.join(__dirname, 'resources', 'aurivo', 'eq_presets.json');
+    const filePath = getAppFilePath(path.join('resources', 'aurivo', 'eq_presets.json'));
     try {
         const raw = fs.readFileSync(filePath, 'utf8');
         const parsed = JSON.parse(raw);
