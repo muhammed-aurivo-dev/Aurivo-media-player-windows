@@ -1282,17 +1282,41 @@ function isDevMode() {
     return !app.isPackaged || process.env.AURIVO_DEV === '1' || process.argv.includes('--dev');
 }
 
-function getProjectMPresetsPath() {
-    if (app.isPackaged) {
-        return path.join(process.resourcesPath, 'visualizer-presets');
+function pickFirstExistingPath(paths) {
+    for (const p of paths || []) {
+        try {
+            if (p && fs.existsSync(p)) return p;
+        } catch {
+            // ignore
+        }
     }
-    return getResourcePath(path.join('third_party', 'projectm', 'presets'));
+    return (paths && paths[0]) ? paths[0] : '';
 }
 
-function getVisualizerExecutablePath() {
-    // Packaged (Windows): sabit yol
+function getProjectMPresetsPath() {
+    const candidates = [];
+
+    if (app.isPackaged) {
+        // Preferred packaged path (explicitly mapped by extraResources)
+        candidates.push(path.join(process.resourcesPath, 'visualizer-presets'));
+        // Fallback: if entire third_party is shipped
+        candidates.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'presets'));
+    } else {
+        candidates.push(getResourcePath(path.join('third_party', 'projectm', 'presets')));
+    }
+
+    return pickFirstExistingPath(candidates);
+}
+
+function getVisualizerExecutableCandidates() {
+    const out = [];
+
+    // Packaged (Windows): prefer native-dist; fallback to shipped third_party (if it contains a binary)
     if (app.isPackaged && process.platform === 'win32') {
-        return path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe');
+        out.push(path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe'));
+        out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'aurivo-projectm-visualizer.exe'));
+        out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'bin', 'aurivo-projectm-visualizer.exe'));
+        return out;
     }
 
     const exeName = process.platform === 'win32'
@@ -1301,14 +1325,28 @@ function getVisualizerExecutablePath() {
 
     // Packaged (Linux/Mac): resources/native-dist (extraResources)
     if (app.isPackaged) {
-        return path.join(process.resourcesPath, 'native-dist', exeName);
+        out.push(path.join(process.resourcesPath, 'native-dist', exeName));
+        // Optional fallback if third_party is shipped and contains a binary
+        out.push(path.join(process.resourcesPath, 'third_party', 'projectm', exeName));
+        out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'bin', exeName));
+        return out;
     }
 
-    // Packaged/runtime default: resources/native-dist (via extraFiles)
-    const distPath = getResourcePath(path.join('native-dist', exeName));
+    // Dev: keep existing behavior (distPath + build-visualizer candidates handled below)
+    out.push(getResourcePath(path.join('native-dist', exeName)));
+    return out;
+}
+
+function getVisualizerExecutablePath() {
+    const exeName = process.platform === 'win32'
+        ? 'aurivo-projectm-visualizer.exe'
+        : 'aurivo-projectm-visualizer';
+
+    // Base candidate(s)
+    const baseCandidates = getVisualizerExecutableCandidates();
+    const basePick = pickFirstExistingPath(baseCandidates);
 
     // Dev convenience: prefer the freshly built CMake output if available.
-    // This avoids "derlemede çalışıyor ama uygulamada çalışmıyor" issues caused by forgetting to copy to native-dist.
     const devCandidates = process.platform === 'win32'
         ? [
             path.join(__dirname, 'build-visualizer', 'Release', exeName),
@@ -1318,29 +1356,38 @@ function getVisualizerExecutablePath() {
             path.join(__dirname, 'build-visualizer', exeName)
         ];
 
+    // Dev convenience: prefer the freshly built CMake output if available.
+    // This avoids "derlemede çalışıyor ama uygulamada çalışmıyor" issues caused by forgetting to copy to native-dist.
     if (isDevMode()) {
         for (const p of devCandidates) {
             if (fs.existsSync(p)) return p;
         }
-        return distPath;
+        return basePick;
     }
 
-    // Non-dev: prefer native-dist, but allow fallback if it's missing.
-    if (fs.existsSync(distPath)) return distPath;
+    // Non-dev: prefer packaged candidates; allow fallback if it's missing.
+    if (basePick && fs.existsSync(basePick)) return basePick;
     for (const p of devCandidates) {
         if (fs.existsSync(p)) {
             console.warn('[Visualizer] native-dist bulunamadı; build-visualizer çıktısına fallback:', p);
             return p;
         }
     }
-    return distPath;
+    return basePick;
 }
 
 function startVisualizer() {
     if (visualizerProc && !visualizerProc.killed) return true;
 
-    const exePath = getVisualizerExecutablePath();
-    const presetsPath = getProjectMPresetsPath();
+    const exeCandidates = getVisualizerExecutableCandidates();
+    const exePath = pickFirstExistingPath(exeCandidates) || getVisualizerExecutablePath();
+
+    const presetsCandidates = [
+        path.join(process.resourcesPath || '', 'visualizer-presets'),
+        path.join(process.resourcesPath || '', 'third_party', 'projectm', 'presets'),
+        getProjectMPresetsPath()
+    ].filter(Boolean);
+    const presetsPath = pickFirstExistingPath(presetsCandidates);
 
     const exeOk = fs.existsSync(exePath);
     const presetsOk = fs.existsSync(presetsPath);
@@ -1348,23 +1395,35 @@ function startVisualizer() {
         if (!exeOk) console.error('[Visualizer] executable bulunamadı:', exePath);
         if (!presetsOk) console.error('[Visualizer] presets bulunamadı:', presetsPath);
 
-        const title = tMainSync('visualizer.notFoundTitle') || 'Visualizer dosyaları bulunamadı';
+        const title = tMainSync('visualizer.notFoundTitle') || 'Görselleştirici bileşenleri eksik';
         let body = tMainSync('visualizer.notFoundBody', { path: exePath }) || '';
 
         const lines = [];
         lines.push('Aranan yollar:');
         lines.push(`- Visualizer: ${exePath}`);
+        if (exeCandidates?.length) {
+            lines.push('  Adaylar:');
+            for (const p of exeCandidates) lines.push(`  - ${p}`);
+        }
         lines.push(`- Presets: ${presetsPath}`);
+        lines.push('  Adaylar:');
+        for (const p of presetsCandidates) lines.push(`  - ${p}`);
         lines.push('');
         lines.push('Çözüm:');
+        lines.push('- Visualizer, Windows üzerinde çalışmak için bir `.exe` gerektirir.');
         lines.push('- Uygulamayı yeniden kurmayı deneyin.');
-        lines.push('- Paketleme sırasında `native-dist` ve presets klasörünün `extraResources` içine dahil olduğundan emin olun.');
-        if (process.platform === 'win32') {
-            lines.push('- Windows build için presets hedefi: resources/visualizer-presets');
-        }
+        lines.push('- Paketleme sırasında `native-dist` (exe) ve presets klasörünün `extraResources` içine dahil olduğundan emin olun.');
+        lines.push('- Bu eksiklik müzik kütüphanesini/oynatıcıyı etkilemez; sadece görselleştirici devre dışı kalır.');
 
         body = [body, lines.join('\n')].filter(Boolean).join('\n\n');
-        dialog.showErrorBox(title, body);
+        // Uygulamayı kilitlemeyelim: uyarı göster ve çık.
+        dialog.showMessageBox({
+            type: 'warning',
+            title,
+            message: title,
+            detail: body,
+            buttons: ['Tamam']
+        }).catch(() => { /* ignore */ });
         return false;
     }
 
