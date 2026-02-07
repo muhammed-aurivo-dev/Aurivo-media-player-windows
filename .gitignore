@@ -9,6 +9,7 @@ pnpm-debug.log*
 
 # Electron Builder output
 dist/
+bin/
 
 # Native build outputs
 native/build/

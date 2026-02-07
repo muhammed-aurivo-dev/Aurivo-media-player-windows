@@ -1,0 +1,77 @@
+name: Build (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    env:
+      # Keep these in sync with package.json build.electronVersion
+      ELECTRON_VERSION: "28.3.3"
+      AURIVO_VISUALIZER_DLL_DIR: 'C:\msys64\mingw64\bin'
+
+      # Force node-gyp to build against Electron headers (not the host Node.js)
+      npm_config_runtime: "electron"
+      npm_config_target: "28.3.3"
+      npm_config_disturl: "https://electronjs.org/headers"
+      npm_config_build_from_source: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native audio addon (aurivo_audio.node)
+        run: npm run rebuild-native
+
+      - name: Setup MSYS2 (for Visualizer build)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-projectm
+
+      - name: Build Visualizer (aurivo-projectm-visualizer.exe)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cmake -S visualizer -B build-visualizer -G Ninja
+          cmake --build build-visualizer
+          mkdir -p native-dist
+          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
+
+      - name: Prepare Windows resources (ffmpeg.exe + DLL copy)
+        run: npm run prepare:win:resources
+
+      - name: Verify Windows artifacts (MZ checks)
+        run: npm run verify:win:artifacts
+
+      - name: Build Windows installer (NSIS) + portable zip
+        run: npm run build:win
+
+      - name: Upload artifacts (dist)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurivo-Windows-${{ github.sha }}
+          path: dist/*
+

@@ -1343,7 +1343,7 @@ function pickFirstExistingPath(paths) {
             // ignore
         }
     }
-    return (paths && paths[0]) ? paths[0] : '';
+    return '';
 }
 
 function getProjectMPresetsPath() {
@@ -1415,7 +1415,7 @@ function getVisualizerExecutablePath() {
         for (const p of devCandidates) {
             if (fs.existsSync(p)) return p;
         }
-        return basePick;
+        return basePick || ((baseCandidates && baseCandidates[0]) ? baseCandidates[0] : '');
     }
 
     // Non-dev: prefer packaged candidates; allow fallback if it's missing.
@@ -1426,14 +1426,14 @@ function getVisualizerExecutablePath() {
             return p;
         }
     }
-    return basePick;
+    return basePick || ((baseCandidates && baseCandidates[0]) ? baseCandidates[0] : '');
 }
 
 function startVisualizer() {
     if (visualizerProc && !visualizerProc.killed) return true;
 
     const exeCandidates = getVisualizerExecutableCandidates();
-    const exePath = pickFirstExistingPath(exeCandidates) || getVisualizerExecutablePath();
+    const exePath = getVisualizerExecutablePath();
 
     const presetsCandidates = [
         path.join(process.resourcesPath || '', 'visualizer-presets'),

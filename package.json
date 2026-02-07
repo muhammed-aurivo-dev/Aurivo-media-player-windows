@@ -79,6 +79,20 @@
     ],
     "files": [
       "**/*",
+      "!**/*.md",
+      "!**/.vscode/**",
+      "!**/__pycache__/**",
+      "!**/*.ipynb",
+      "!dist/**",
+      "!build/**",
+      "!build-visualizer/**",
+      "!screenshots/**",
+      "!venv/**",
+      "!.venv/**",
+      "!**/venv/**",
+      "!**/.venv/**",
+      "!native/node_modules/**",
+      "!native-dist/**",
       "!native/build/Release/obj.target/**",
       "!native/build/Release/.deps/**",
       "!native/**/*.o",
@@ -183,13 +197,6 @@
         {
           "from": "third_party/projectm/presets",
           "to": "visualizer-presets"
-        },
-        {
-          "from": "third_party",
-          "to": "third_party",
-          "filter": [
-            "**/*"
-          ]
         },
         {
           "from": "libs/windows",

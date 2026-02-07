@@ -12,6 +12,16 @@ Linux’ta `electron-builder --win` ile installer üretmek mümkündür ama bu n
 
 Bu yüzden stabil bir Windows dağıtımı için en doğru yol: **Windows ortamında build** (veya CI ile Windows runner).
 
+## CI ile Windows build (GitHub Actions)
+
+Windows terminali / yerel Windows kurulumuyla uğraşmadan Windows çıktısı almak için en pratik yol:
+
+- Repo’da `.github/workflows/build-windows.yml` workflow’u çalışır.
+- GitHub → **Actions** sekmesi → **Build (Windows)** → **Run workflow**.
+- Çıktılar **Artifacts** bölümüne `dist/*` olarak yüklenir (NSIS installer + portable zip).
+
+> Not: Native bileşenler (`aurivo_audio.node` ve `aurivo-projectm-visualizer.exe`) Windows runner üzerinde derlenir; bu yüzden Linux’ta `electron-builder --win` ile “cross build” alıp dağıtmak yerine CI çıktısını kullanın.
+
 ## Gereksinimler (Windows 10/11)
 
 - Node.js LTS
