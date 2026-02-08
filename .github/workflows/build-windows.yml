@@ -13,8 +13,8 @@ jobs:
     env:
       # Keep these in sync with package.json build.electronVersion
       ELECTRON_VERSION: "28.3.3"
-      # Visualizer build currently optional in CI; keep packaging stable even if projectM isn't available.
-      AURIVO_SKIP_VISUALIZER: "1"
+      # ProjectM visualizer now included in Windows build
+      # AURIVO_SKIP_VISUALIZER disabled - visualizer executable is in native-dist/
 
       # Force node-gyp to build against Electron headers (not the host Node.js)
       npm_config_runtime: "electron"
