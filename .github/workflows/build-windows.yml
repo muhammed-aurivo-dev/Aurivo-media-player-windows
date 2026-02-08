@@ -55,16 +55,16 @@ jobs:
           $nodeGypLog = "native\\node-gyp-windows.log"
           if (Test-Path $nodeGypLog) { Remove-Item $nodeGypLog -Force }
 
-          $proc = Start-Process -FilePath "npm" -NoNewWindow -Wait -PassThru `
-            -ArgumentList @("--prefix","native","exec","--","node-gyp","rebuild","--release","--verbose") `
-            -RedirectStandardOutput $nodeGypLog -RedirectStandardError $nodeGypLog
+          # Capture both stdout/stderr into one log file (Start-Process can't redirect both to the same file).
+          & npm --prefix native exec -- node-gyp rebuild --release --verbose 2>&1 | Tee-Object -FilePath $nodeGypLog
+          $nodeGypExit = $PIPELINESTATUS[0]
 
           Write-Host "==== tail($nodeGypLog)"
           if (Test-Path $nodeGypLog) { Get-Content $nodeGypLog -Tail 250 }
 
-          if ($proc.ExitCode -ne 0) {
-            Write-Host "node-gyp rebuild failed with exit code $($proc.ExitCode)"
-            exit $proc.ExitCode
+          if ($nodeGypExit -ne 0) {
+            Write-Host "node-gyp rebuild failed with exit code $nodeGypExit"
+            exit $nodeGypExit
           }
 
           npm --prefix native run copy-libs
