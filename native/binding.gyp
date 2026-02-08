@@ -36,7 +36,7 @@
                 }],
                 
                 ["OS=='win'", {
-                    "defines": ["WIN32", "_WINDOWS", "BASS_DYNAMIC_LOAD"],
+                    "defines": ["WIN32", "_WINDOWS", "BASS_DYNAMIC_LOAD", "NOMINMAX", "WIN32_LEAN_AND_MEAN"],
                     "msvs_settings": {
                         "VCCLCompilerTool": {
                             "ExceptionHandling": 1,
