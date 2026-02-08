@@ -1,33 +1,30 @@
-build/
-
-# Node / Electron
+# Node
 node_modules/
+
+# Build
+/dist/
+/dist2/
+/dist3/
+/dist4/
+/dist5/
+/out/
+
+# Native
+/native/build/
+/build-visualizer/
+
+# Local cache
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
 
-# Electron Builder output
-dist/
-bin/
-
-# Native build outputs
-native/build/
-build-visualizer/
-visualizer/build/
-native-dist/*
-!native-dist/.gitkeep
-
-# Python
-venv/
-.venv/
-__pycache__/
-
-# Misc
+# OS
 .DS_Store
-.env
-.env.*
-imgui.ini
+Thumbs.db
+
+# Electron
+*.log
+
+# VS Code
 .vscode/
-native/*.ipynb
-native/build_log.txt
+
+# Generated
+native-dist/
