@@ -307,6 +307,29 @@ function schedulePersistEq32ToAppSettings(eq32Settings) {
 document.addEventListener('DOMContentLoaded', () => {
     (async () => {
         try {
+            // Uyarı: Native audio engine mevcut değilse ses efektleri çalışmayacak
+            const isNativeAudioAvailable = window.aurivo?.audio?.isNativeAvailable?.();
+            if (!isNativeAudioAvailable) {
+                const warningDiv = document.createElement('div');
+                warningDiv.style.cssText = `
+                    position: fixed;
+                    top: 10px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #ff6b6b;
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    z-index: 10000;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                `;
+                warningDiv.textContent = '⚠️ Ses Efektleri Kullanılamıyor: Native Audio Engine yüklenmedi. Temel ses oynatma çalışıyor.';
+                document.body.appendChild(warningDiv);
+                setTimeout(() => warningDiv.remove(), 8000);
+                console.warn('[SFX] Native audio unavailable - sound effects disabled');
+            }
+            
             if (window.i18n?.init) {
                 await window.i18n.init();
                 try {
@@ -3126,6 +3149,13 @@ function applyEffect(effectName) {
 
     if (!ipcAudio) {
         console.warn('IPC Audio API mevcut değil');
+        return;
+    }
+    
+    // Native audio mevcut değilse uyarı
+    const isNativeAudioAvailable = window.aurivo?.audio?.isNativeAvailable?.();
+    if (!isNativeAudioAvailable) {
+        console.warn(`[SFX] Native audio unavailable - effect "${effectName}" cannot be applied`);
         return;
     }
 
