@@ -31,7 +31,33 @@ function hex(buf) {
 
 function assertFileLooksLikeWindowsBinary(p, label) {
   if (!exists(p)) {
-    throw new Error(`${label} bulunamadı: ${p}`);
+    const extra = [];
+    try {
+      const root = path.resolve(__dirname, '..');
+      const wantsAddon = /aurivo_audio\.node/i.test(p);
+      const wantsVisualizer = /aurivo-projectm-visualizer(\.exe)?/i.test(p);
+
+      if (wantsAddon) {
+        const nativeBuildDir = path.join(root, 'native', 'build');
+        if (exists(nativeBuildDir)) {
+          const hits = findFiles(nativeBuildDir, (name) => /aurivo_audio\.node$/i.test(name), 40);
+          if (hits.length) extra.push(`Bulunan adaylar:\n- ${hits.join('\n- ')}`);
+        }
+      }
+
+      if (wantsVisualizer) {
+        const nativeDistDir = path.join(root, 'native-dist');
+        if (exists(nativeDistDir)) {
+          const hits = findFiles(nativeDistDir, (name) => /aurivo-projectm-visualizer/i.test(name), 40);
+          if (hits.length) extra.push(`Bulunan adaylar:\n- ${hits.join('\n- ')}`);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const extraMsg = extra.length ? `\n\n${extra.join('\n\n')}` : '';
+    throw new Error(`${label} bulunamadı: ${p}${extraMsg}`);
   }
 
   const m = readMagic(p, 4);
@@ -42,6 +68,37 @@ function assertFileLooksLikeWindowsBinary(p, label) {
         `Muhtemelen Linux (ELF) dosyası paketleniyor. path=${p} magic=${hex(m)}`
     );
   }
+}
+
+function findFiles(rootDir, predicate, limit = 50) {
+  const results = [];
+  const queue = [rootDir];
+
+  while (queue.length && results.length < limit) {
+    const dir = queue.shift();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (results.length >= limit) break;
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // Avoid deep recursion into node_modules-like trees (shouldn't exist here, but safe).
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        queue.push(p);
+        continue;
+      }
+      if (entry.isFile() && predicate(entry.name)) {
+        results.push(p);
+      }
+    }
+  }
+
+  return results;
 }
 
 function main() {
