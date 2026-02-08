@@ -4565,15 +4565,31 @@ function togglePlayPause() {
         if (state.activeMedia === 'audio') {
             if (useNativeAudio) {
                 // C++ Engine ile duraklat (opsiyonel fade)
-                if (state.settings?.playback?.fadeOnPauseResume && window.aurivo?.audio?.fadeVolumeTo) {
-                    const ms = state.settings.playback.pauseFadeMs || 250;
-                    window.aurivo.audio.fadeVolumeTo(0, ms).finally(() => {
-                        window.aurivo.audio.pause();
+                try {
+                    if (state.settings?.playback?.fadeOnPauseResume && window.aurivo?.audio?.fadeVolumeTo) {
+                        const ms = state.settings.playback.pauseFadeMs || 250;
+                        window.aurivo.audio.fadeVolumeTo(0, ms).finally(() => {
+                            try {
+                                window.aurivo.audio.pause();
+                            } catch (e) {
+                                console.error('[togglePlayPause] pause error:', e);
+                            }
+                            stopNativePositionUpdates();
+                        }).catch(e => {
+                            console.error('[togglePlayPause] fadeVolumeTo error:', e);
+                            try { window.aurivo.audio.pause(); } catch { }
+                        });
+                    } else {
+                        const result = window.aurivo.audio.pause();
+                        if (result && result.error) {
+                            console.error('[togglePlayPause] pause failed:', result.error);
+                        }
                         stopNativePositionUpdates();
-                    });
-                } else {
-                    window.aurivo.audio.pause();
-                    stopNativePositionUpdates();
+                    }
+                } catch (e) {
+                    console.error('[togglePlayPause] Native pause error:', e);
+                    // Fallback to HTML5
+                    activePlayer.pause();
                 }
             } else {
                 // Fade on pause özelliği aktif mi?
@@ -4591,7 +4607,7 @@ function togglePlayPause() {
             elements.webView.executeJavaScript(`
                     var m = document.querySelector('video, audio');
                     if(m) m.pause();
-                `);
+                `).catch(e => console.error('[web pause error]:', e));
         }
         state.isPlaying = false;
         updatePlayPauseIcon(false);
@@ -4604,7 +4620,7 @@ function togglePlayPause() {
             elements.webView.executeJavaScript(`
                 var m = document.querySelector('video, audio');
                 if(m) m.play();
-            `);
+            `).catch(e => console.error('[web play error]:', e));
             state.isPlaying = true;
             updatePlayPauseIcon(true);
             updateTrayState();
@@ -4612,15 +4628,36 @@ function togglePlayPause() {
         } else if (state.currentIndex >= 0 && state.activeMedia === 'audio') {
             // Mevcut şarkıyı devam ettir
             if (useNativeAudio) {
-                if (state.settings?.playback?.fadeOnPauseResume && window.aurivo?.audio?.fadeVolumeTo) {
-                    const ms = state.settings.playback.pauseFadeMs || 250;
-                    window.aurivo.audio.setVolume(0);
-                    window.aurivo.audio.play();
-                    startNativePositionUpdates();
-                    window.aurivo.audio.fadeVolumeTo(Math.max(0, Math.min(1, (state.volume || 0) / 100)), ms);
-                } else {
-                    window.aurivo.audio.play();
-                    startNativePositionUpdates();
+                try {
+                    if (state.settings?.playback?.fadeOnPauseResume && window.aurivo?.audio?.fadeVolumeTo) {
+                        const ms = state.settings.playback.pauseFadeMs || 250;
+                        window.aurivo.audio.setVolume(0);
+                        const playResult = window.aurivo.audio.play();
+                        if (playResult && playResult.error) {
+                            console.error('[togglePlayPause] play failed:', playResult.error);
+                            // Fallback to HTML5
+                            useNativeAudio = false;
+                            activePlayer.play();
+                        } else {
+                            startNativePositionUpdates();
+                            window.aurivo.audio.fadeVolumeTo(Math.max(0, Math.min(1, (state.volume || 0) / 100)), ms).catch(e => console.error('[fadeVolume error]:', e));
+                        }
+                    } else {
+                        const playResult = window.aurivo.audio.play();
+                        if (playResult && playResult.error) {
+                            console.error('[togglePlayPause] play failed:', playResult.error);
+                            // Fallback to HTML5
+                            useNativeAudio = false;
+                            activePlayer.play();
+                        } else {
+                            startNativePositionUpdates();
+                        }
+                    }
+                } catch (e) {
+                    console.error('[togglePlayPause] Native play error:', e);
+                    // Fallback to HTML5
+                    useNativeAudio = false;
+                    activePlayer.play();
                 }
             } else {
                 if (state.settings?.playback?.fadeOnPauseResume) {
