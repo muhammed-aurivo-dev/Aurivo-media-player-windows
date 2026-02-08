@@ -169,6 +169,14 @@
           ]
         },
         {
+          "from": "native-dist",
+          "to": "native-dist",
+          "filter": [
+            "aurivo-projectm-visualizer.exe",
+            "*.dll"
+          ]
+        },
+        {
           "from": "native/build/Release",
           "to": "native/build/Release",
           "filter": [
@@ -187,6 +195,14 @@
         {
           "from": "icons/aurivo_logo.bmp",
           "to": "icons/aurivo_logo.bmp"
+        },
+        {
+          "from": "third_party/projectm/presets",
+          "to": "visualizer-presets",
+          "filter": [
+            "*.zip",
+            "*.milk"
+          ]
         },
         {
           "from": "libs/windows",
