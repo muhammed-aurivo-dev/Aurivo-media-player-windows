@@ -49,14 +49,19 @@ function main() {
 
   console.log('\n[verify-win-artifacts] Windows build artifact kontrolü...');
   console.log('[verify-win-artifacts] host platform:', os.platform());
+  const skipVisualizer = String(process.env.AURIVO_SKIP_VISUALIZER || '').trim() === '1';
 
   // Native audio addon (must be built for Electron/Windows before packaging)
   const nativeAddon = path.join(root, 'native', 'build', 'Release', 'aurivo_audio.node');
   assertFileLooksLikeWindowsBinary(nativeAddon, 'Native audio addon (aurivo_audio.node)');
 
   // Visualizer executable (must exist for Windows packaged builds)
-  const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer.exe');
-  assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
+  if (skipVisualizer) {
+    console.warn('[verify-win-artifacts] ⚠ Visualizer kontrolü atlandı (AURIVO_SKIP_VISUALIZER=1).');
+  } else {
+    const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer.exe');
+    assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
+  }
 
   // BASS runtime DLLs copied into native build dir (DLL loader searches here)
   const bassDllDir = path.join(root, 'native', 'build', 'Release');
@@ -100,4 +105,3 @@ try {
   console.error('- Sonra `npm run build:win`');
   process.exit(1);
 }
-

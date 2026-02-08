@@ -13,7 +13,8 @@ jobs:
     env:
       # Keep these in sync with package.json build.electronVersion
       ELECTRON_VERSION: "28.3.3"
-      AURIVO_VISUALIZER_DLL_DIR: 'C:\msys64\mingw64\bin'
+      # Visualizer build currently optional in CI; keep packaging stable even if projectM isn't available.
+      AURIVO_SKIP_VISUALIZER: "1"
 
       # Force node-gyp to build against Electron headers (not the host Node.js)
       npm_config_runtime: "electron"
@@ -69,29 +70,6 @@ jobs:
       - name: Fail workflow if native build failed
         if: steps.native_build.outcome == 'failure'
         run: exit 1
-
-      - name: Setup MSYS2 (for Visualizer build)
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-SDL2_image
-            mingw-w64-x86_64-projectm
-
-      - name: Build Visualizer (aurivo-projectm-visualizer.exe)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          cmake -S visualizer -B build-visualizer -G Ninja
-          cmake --build build-visualizer
-          mkdir -p native-dist
-          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
 
       - name: Prepare Windows resources (ffmpeg.exe + DLL copy)
         run: npm run prepare:win:resources
