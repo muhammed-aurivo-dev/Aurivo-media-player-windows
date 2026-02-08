@@ -40,10 +40,29 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          npm --prefix native ci
-          npm --prefix native exec -- node-gyp rebuild --verbose
+          function Assert-Ok([string]$label) {
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "$label failed with exit code $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
+          }
+
+          # In PowerShell, non-zero exit codes from external commands don't stop execution.
+          # Make failures explicit so the workflow doesn't continue with missing artifacts.
+          npm --prefix native ci --ignore-scripts
+          Assert-Ok "npm --prefix native ci"
+
+          npm --prefix native exec -- node-gyp rebuild --release --verbose
+          Assert-Ok "node-gyp rebuild"
+
           npm --prefix native run copy-libs
+          Assert-Ok "npm --prefix native run copy-libs"
+
+          if (!(Test-Path "native\build\Release\aurivo_audio.node")) {
+            Write-Host "native\build\Release\aurivo_audio.node not found; dumping build folders..."
+            if (Test-Path "native\build") { Get-ChildItem "native\build" -Recurse -Depth 3 | Select-Object FullName,Length | Format-Table -AutoSize }
+            exit 1
+          }
 
       - name: Dump native build logs (on failure)
         if: steps.native_build.outcome == 'failure'
