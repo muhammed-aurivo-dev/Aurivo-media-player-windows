@@ -60,7 +60,7 @@ jobs:
           $nodeGypExit = $PIPELINESTATUS[0]
 
           Write-Host "==== tail($nodeGypLog)"
-          if (Test-Path $nodeGypLog) { Get-Content $nodeGypLog -Tail 250 }
+          if (Test-Path $nodeGypLog) { Get-Content $nodeGypLog -Tail 800 }
 
           if ($nodeGypExit -ne 0) {
             Write-Host "node-gyp rebuild failed with exit code $nodeGypExit"
@@ -100,8 +100,17 @@ jobs:
 
           if (Test-Path "native\node-gyp-windows.log") {
             Write-Host "==== native/node-gyp-windows.log (tail)"
-            Get-Content "native\node-gyp-windows.log" -Tail 300
+            Get-Content "native\node-gyp-windows.log" -Tail 1200
           }
+
+      - name: Upload native build logs (on failure)
+        if: steps.native_build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-build-logs-${{ github.run_id }}
+          path: |
+            native/node-gyp-windows.log
+            native/build/config.gypi
 
       - name: Fail workflow if native build failed
         if: steps.native_build.outcome == 'failure'
