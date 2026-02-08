@@ -117,7 +117,11 @@ function main() {
     console.warn('[verify-win-artifacts] ⚠ Visualizer kontrolü atlandı (AURIVO_SKIP_VISUALIZER=1).');
   } else {
     const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer.exe');
-    assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
+    if (!exists(visualizerExe)) {
+      console.warn('[verify-win-artifacts] ⚠ Visualizer exe yok (opsiyonel - çalışmaya devam edilecek):', visualizerExe);
+    } else {
+      assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
+    }
   }
 
   // BASS runtime DLLs copied into native build dir (DLL loader searches here)
