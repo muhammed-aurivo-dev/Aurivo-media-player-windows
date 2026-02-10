@@ -26,7 +26,7 @@ function resizePng(bin, src, size, dest) {
 
 async function main() {
   const rootDir = path.join(__dirname, '..');
-  const src = path.join(rootDir, 'icons', 'aurivo_alt_boldA_transparent_1024.png');
+  const src = path.join(rootDir, 'icons', 'aurivo_512.png');
   const dest = path.join(rootDir, 'icons', 'aurivo.ico');
 
   const bin = findImageMagickBinary();

@@ -445,14 +445,14 @@ function getAppIconPath() {
     if (process.platform === 'win32') {
         return getResourcePath(path.join('icons', 'aurivo.ico'));
     }
-    return getResourcePath(path.join('icons', 'aurivo_256.png'));
+    return getResourcePath(path.join('icons', 'aurivo_512.png'));
 }
 
 function getAppIconImage() {
     const iconPath = getAppIconPath();
     const img = nativeImage.createFromPath(iconPath);
     if (!img || img.isEmpty()) {
-        return nativeImage.createFromPath(path.join(__dirname, 'icons', 'aurivo_256.png'));
+        return nativeImage.createFromPath(path.join(__dirname, 'icons', 'aurivo_512.png'));
     }
     return img;
 }
@@ -850,8 +850,8 @@ function createWindow() {
 
 function createTray() {
     const iconPath = process.platform === 'win32'
-        ? getResourcePath(path.join('icons', 'aurivo_256.png'))
-        : getResourcePath(path.join('icons', 'aurivo_256.png'));
+        ? getResourcePath(path.join('icons', 'aurivo_512.png'))
+        : getResourcePath(path.join('icons', 'aurivo_512.png'));
 
     tray = new Tray(nativeImage.createFromPath(iconPath));
 
@@ -1545,7 +1545,7 @@ function startVisualizer() {
         return false;
     }
 
-    const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
+    const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_512.png'));
 
     const env = {
         ...process.env,
