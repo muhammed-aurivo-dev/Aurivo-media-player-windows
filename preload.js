@@ -1,7 +1,7 @@
 // ============================================
-// AURIVO MEDIA PLAYER - Preload Script
-// Secure IPC Bridge for Native Audio Engine
-// Version 2.1 - All Audio via Main Process IPC
+// AURIVO MEDIA PLAYER - Preload Betiği
+// Native Ses Motoru için Güvenli IPC Köprüsü
+// Sürüm 2.1 - Tüm Ses Main Process IPC üzerinden
 // ============================================
 
 console.log('[PRELOAD] Script başlıyor...');
@@ -30,7 +30,7 @@ const EQ_FREQUENCIES = [
 ];
 
 // ============================================
-// IPC-based Audio Control API
+// IPC tabanlı Ses Kontrol API
 // Tüm audio işlemleri main process'e IPC ile gönderilir
 // ============================================
 const createIPCAudioAPI = () => {
@@ -244,7 +244,7 @@ const createAudioAPI = () => {
         fadeVolumeTo: (target, durationMs) => ipcRenderer.invoke('audio:fadeVolumeTo', target, durationMs),
         getVolume: async () => (await ipcRenderer.invoke('audio:getVolume')) || 0,
 
-        // DSP Master Enable/Disable
+        // DSP Master Etkinleştir/Devre dışı bırak
         setEffectsEnabled: (enabled) => ipcRenderer.invoke('audio:setDSPEnabled', enabled),
         setDSPEnabled: (enabled) => ipcRenderer.invoke('audio:setDSPEnabled', enabled),
 
@@ -291,7 +291,7 @@ const createAudioAPI = () => {
             get: () => ipcRenderer.invoke('audio:getPreamp')
         },
 
-        // Auto Gain / Normalize
+        // Auto Gain / Normalize et
         autoGain: {
             setEnabled: (enabled) => ipcRenderer.invoke('audio:setAutoGainEnabled', enabled),
             setTarget: (dBFS) => ipcRenderer.invoke('audio:setAutoGainTarget', dBFS),
@@ -570,7 +570,7 @@ const createAudioAPI = () => {
 };
 
 // ============================================
-// Context Bridge - Expose to Renderer
+// Context Bridge - Renderer'a Aç
 // ============================================
 const aurivoAPI = {
     // Dosya Sistemi
@@ -706,11 +706,11 @@ const aurivoAPI = {
     version: '2.1.0',
     isNativeAudioAvailable: isNativeAvailable,
     
-    // System Paths API
+    // System Yollar API
     getHomeDir: () => os.homedir(),
     getUserName: () => os.userInfo().username,
     
-    // Path utilities
+    // Yol utilities
     path: {
         join: (...args) => path.join(...args),
         basename: (p) => path.basename(p),
@@ -745,7 +745,7 @@ try {
     console.error('[PRELOAD] contextBridge hata:', e.message);
 }
 
-// Visualizer API (projectM native executable)
+// Görselleştirici API (projectM native çalıştırılabilir)
 const appAPI = {
     visualizer: {
         toggle: () => ipcRenderer.invoke('visualizer:toggle')
@@ -766,7 +766,7 @@ try {
     console.error('[PRELOAD] contextBridge (app) hata:', e.message);
 }
 
-// Startup Log
+// Başlangıç Logu
 console.log('═══════════════════════════════════════');
 console.log('  AURIVO MEDIA PLAYER - Preload v2.1');
 console.log('  ✓ IPC-Based Audio (Main Process)');

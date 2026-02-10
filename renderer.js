@@ -1,10 +1,10 @@
 // ============================================
-// AURIVO MEDIA PLAYER - Renderer Process
+// AURIVO MEDIA PLAYER - Renderer Süreci
 // Qt MainWindow.cpp portlu JavaScript
-// C++ BASS Audio Engine Entegrasyonu
+// C++ BASS Ses Motoru Entegrasyonu
 // ============================================
 
-// Debug: window.aurivo kontrolü
+// Hata ayıklama: window.aurivo kontrolü
 console.log('[RENDERER] Script başlıyor...');
 console.log('[RENDERER] window.aurivo:', typeof window.aurivo);
 if (window.aurivo) {
@@ -13,10 +13,10 @@ if (window.aurivo) {
     console.error('[RENDERER] ⚠ window.aurivo undefined!');
 }
 
-// C++ Native Audio Engine kullanılabilir mi?
+// C++ Native Ses Motoru kullanılabilir mi?
 let useNativeAudio = false;
 
-// State
+// Durum
 const state = {
     currentPage: 'files',
     currentPanel: 'library',
@@ -25,7 +25,7 @@ const state = {
     isPlaying: false,
     isShuffle: false,
     isRepeat: false,
-    stopAfterCurrent: false, // System tray "Stop after current" özelliği
+    stopAfterCurrent: false, // Sistem tepsisi "Geçerli parçadan sonra durdur" özelliği
     volume: 40,
     isMuted: false,
     savedVolume: 40,
@@ -36,25 +36,25 @@ const state = {
     mediaFilter: 'audio', // 'audio' - sadece ses dosyaları
     activeMedia: 'none', // 'audio', 'video', 'web', 'none'
     currentCover: null,
-    // Crossfade state
+    // Çapraz geçiş durumu
     crossfadeInProgress: false,
     autoCrossfadeTriggered: false,
     trackAboutToEnd: false,
     trackAboutToEndTriggered: false,
     activePlayer: 'A', // 'A' veya 'B'
-    // Native audio state
+    // Native ses durumu
     nativePositionTimer: null,
     nativePositionGeneration: 0,
-    // MPRIS tracking
+    // MPRIS takibi
     lastMPRISPosition: -1,
     // Sekme bazlı konum hafızası
     lastAudioPath: null, // Müzik sekmesi son konum
     lastVideoPath: null, // Video sekmesi son konum
-    // Video state (müzikten tamamen ayrı)
+    // Video durumu (müzikten tamamen ayrı)
     videoFiles: [], // Mevcut klasördeki video dosyaları
     currentVideoIndex: -1, // Oynatılan video indeksi
     currentVideoPath: null, // Oynatılan video yolu
-    webTrackId: 0, // Web/YouTube için benzersiz track ID sayacı
+    webTrackId: 0, // Web/YouTube için benzersiz parça ID sayacı
     webDuration: 0,
     webPosition: 0,
     webTitle: '',
@@ -77,29 +77,29 @@ function toLocalFileUrl(p) {
         const viaBridge = window.aurivo?.path?.toFileUrl?.(p);
         if (viaBridge) return viaBridge;
     } catch {
-        // ignore
+        // yoksay
     }
 
     const raw = String(p || '').trim();
     if (!raw) return '';
 
-    // Best-effort fallback for cases where preload bridge is missing.
-    // Windows path: C:\foo\bar.mp4 -> file:///C:/foo/bar.mp4
+    // Preload köprüsü yoksa en iyi çaba yedeği.
+    // Windows yolu: C:\foo\bar.mp4 -> file:///C:/foo/bar.mp4
     const normalized = raw.replace(/\\/g, '/');
     const needsLeadingSlash = /^[a-zA-Z]:\//.test(normalized);
     const urlPath = needsLeadingSlash ? `/${normalized}` : normalized;
     return encodeURI(`file://${urlPath}`).replace(/#/g, '%23');
 }
 
-// DOM Elements
+// DOM Öğeleri
 const elements = {};
 
-// File tree mouse-drag selection state
+// Dosya ağacı fare sürükleme seçim durumu
 let fileTreeDragTrack = null; // { startItem, startX, startY, selecting }
 let suppressFileItemClickOnce = false;
 let blockFileTreeDragStart = false;
 
-// Download UI State
+// İndirme UI Durumu
 const downloadState = {
     mode: 'video', // 'video' | 'audio'
     activeId: null,
@@ -109,13 +109,13 @@ const downloadState = {
 };
 
 // ============================================
-// INITIALIZATION
+// BAŞLATMA
 // ============================================
 document.addEventListener('DOMContentLoaded', async () => {
     cacheElements();
     await initializeI18n();
 
-    // Player bar görünürlüğü kontrol et
+    // Oynatıcı çubuğu görünürlüğünü kontrol et
     const playerBar = document.getElementById('playerBar');
     if (playerBar) {
         playerBar.classList.remove('hidden');
@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Player bar görünürlük kontrolü yapıldı');
     }
 
-    // C++ Audio Engine kontrolü
+    // C++ Ses Motoru kontrolü
     await checkNativeAudio();
 
     try {
@@ -145,7 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.libraryActionsAudio) elements.libraryActionsAudio.classList.toggle('hidden', state.mediaFilter !== 'audio');
         if (elements.libraryActionsVideo) elements.libraryActionsVideo.classList.toggle('hidden', state.mediaFilter !== 'video');
     } catch {
-        // ignore
+        // yoksay
     }
 
     console.log('Aurivo Player başlatıldı');
@@ -163,7 +163,7 @@ async function initializeI18n() {
             try {
                 document.title = await window.i18n.t('app.title');
             } catch {
-                // ignore
+                // yoksay
             }
 
             if (elements.languageSelect) {
@@ -210,7 +210,7 @@ function closeRestartModal() {
     overlay.classList.remove('active');
 }
 
-// C++ Audio Engine mevcut mu kontrol et ve başlat
+// C++ Ses Motoru mevcut mu kontrol et ve başlat
 async function checkNativeAudio() {
     try {
         if (window.aurivo && window.aurivo.audio) {
@@ -218,7 +218,7 @@ async function checkNativeAudio() {
             console.log('Native Audio mevcut:', isAvailable);
 
             if (isAvailable) {
-                // Audio Engine'i başlat
+                // Ses Motoru'nu başlat
                 const initResult = await window.aurivo.audio.init();
                 console.log('Audio Engine init sonucu:', initResult);
 
@@ -248,7 +248,7 @@ async function checkNativeAudio() {
     }
 }
 
-// EQ ayarlarını yükle ve Audio Engine'e uygula
+// EQ ayarlarını yükle ve Ses Motoru'na uygula
 async function loadAndApplyEQSettings() {
     try {
         if (!window.aurivo?.loadSettings || !window.aurivo?.ipcAudio?.eq) {
@@ -270,7 +270,7 @@ async function loadAndApplyEQSettings() {
             bantSayısı: eq32.bands.length
         });
 
-        // EQ bantlarını Audio Engine'e uygula
+        // EQ bantlarını Ses Motoru'na uygula
         eq32.bands.forEach((gain, index) => {
             window.aurivo.ipcAudio.eq.setBand(index, gain);
         });
@@ -291,7 +291,7 @@ async function loadAndApplyEQSettings() {
             }
         }
 
-        // Balance
+        // Denge
         if (window.aurivo.ipcAudio.balance && typeof eq32.balance === 'number') {
             window.aurivo.ipcAudio.balance.set(eq32.balance);
         }
@@ -303,7 +303,7 @@ async function loadAndApplyEQSettings() {
 }
 
 function cacheElements() {
-    // Sidebar
+    // Kenar çubuğu
     elements.sidebarBtns = document.querySelectorAll('.sidebar-btn[data-page]');
     elements.settingsBtn = document.getElementById('settingsBtn');
     elements.securityBtn = document.getElementById('securityBtn');
@@ -312,31 +312,31 @@ function cacheElements() {
     elements.aboutCloseBtn = document.getElementById('aboutCloseBtn');
     elements.aboutGithubBtn = document.getElementById('aboutGithubBtn');
 
-    // Panels
+    // Paneller
     elements.leftPanel = document.getElementById('leftPanel');
     elements.libraryPanel = document.getElementById('libraryPanel');
     elements.webPanel = document.getElementById('webPanel');
 
-    // File Tree
+    // Dosya Ağacı
     elements.fileTree = document.getElementById('fileTree');
     elements.libraryActionsAudio = document.getElementById('libraryActionsAudio');
     elements.libraryActionsVideo = document.getElementById('libraryActionsVideo');
 
-    // Cover
+    // Kapak
     elements.coverArt = document.getElementById('coverArt');
 
-    // Web Platforms
+    // Web Platformları
     elements.platformBtns = document.querySelectorAll('.platform-btn');
 
-    // Navigation
+    // Gezinti
     elements.backBtn = document.getElementById('backBtn');
     elements.forwardBtn = document.getElementById('forwardBtn');
     elements.refreshBtn = document.getElementById('refreshBtn');
 
-    // Now Playing
+    // Şimdi Çalıyor
     elements.nowPlayingLabel = document.getElementById('nowPlayingLabel');
 
-    // Pages
+    // Sayfalar
     elements.musicPage = document.getElementById('musicPage');
     elements.videoPage = document.getElementById('videoPage');
     elements.webPage = document.getElementById('webPage');
@@ -345,18 +345,18 @@ function cacheElements() {
     elements.securityPage = document.getElementById('securityPage');
     elements.pages = document.querySelectorAll('.page');
 
-    // Playlist
+    // Çalma Listesi
     elements.playlist = document.getElementById('playlist');
     elements.musicAddFolderBtn = document.getElementById('musicAddFolderBtn');
     elements.musicAddFilesBtn = document.getElementById('musicAddFilesBtn');
     elements.videoAddFolderBtn = document.getElementById('videoAddFolderBtn');
     elements.videoAddFilesBtn = document.getElementById('videoAddFilesBtn');
 
-    // Video & Web
+    // Video ve Web
     elements.videoPlayer = document.getElementById('videoPlayer');
     elements.webView = document.getElementById('webView');
 
-    // Player Controls
+    // Oynatıcı Kontrolleri
     elements.seekSlider = document.getElementById('seekSlider');
     elements.currentTime = document.getElementById('currentTime');
     elements.durationTime = document.getElementById('durationTime');
@@ -375,10 +375,10 @@ function cacheElements() {
     elements.volumeLabel = document.getElementById('volumeLabel');
     elements.clearPlaylistBtn = document.getElementById('clearPlaylistBtn');
 
-    // Visualizer
+    // Görselleştirici
     elements.visualizerCanvas = document.getElementById('visualizerCanvas');
 
-    // Settings (in-app page)
+    // Ayarlar (uygulama içi sayfa)
     elements.closeSettings = document.getElementById('closeSettings');
     elements.settingsTabs = document.querySelectorAll('.settings-tab');
     elements.settingsPages = document.querySelectorAll('.settings-page');
@@ -392,7 +392,7 @@ function cacheElements() {
     elements.restartModalYes = document.getElementById('restartModalYes');
     elements.restartModalNo = document.getElementById('restartModalNo');
 
-    // Download Settings (Preferences modal)
+    // İndirme Ayarları (Tercihler modalı)
     elements.downloadPrefDirPath = document.getElementById('downloadPrefDirPath');
     elements.downloadPrefSelectDir = document.getElementById('downloadPrefSelectDir');
     elements.downloadPrefVideoQuality = document.getElementById('downloadPrefVideoQuality');
@@ -417,7 +417,7 @@ function cacheElements() {
     elements.downloadPrefPlaylistFoldernameFormat = document.getElementById('downloadPrefPlaylistFoldernameFormat');
     elements.downloadPrefCustomArgs = document.getElementById('downloadPrefCustomArgs');
 
-    // Download (in-app page)
+    // İndirme (uygulama içi sayfa)
     elements.closeDownload = document.getElementById('closeDownload');
     elements.downloadTabVideo = document.getElementById('downloadTabVideo');
     elements.downloadTabAudio = document.getElementById('downloadTabAudio');
@@ -466,7 +466,7 @@ function cacheElements() {
     elements.downloadStartBtn = document.getElementById('downloadStartBtn');
     elements.downloadStopBtn = document.getElementById('downloadStopBtn');
 
-    // Security (in-app page)
+    // Güvenlik (uygulama içi sayfa)
     elements.closeSecurity = document.getElementById('closeSecurity');
     elements.securityConnStatus = document.getElementById('securityConnStatus');
     elements.securityCurrentUrl = document.getElementById('securityCurrentUrl');
@@ -478,12 +478,12 @@ function cacheElements() {
     elements.securityClearAllBtn = document.getElementById('securityClearAllBtn');
     elements.securityResetWebBtn = document.getElementById('securityResetWebBtn');
 
-    // Audio Elements (İki adet - crossfade için)
+    // Ses Öğeleri (iki adet - çapraz geçiş için)
     elements.audioA = new Audio();
     elements.audioA.preload = 'metadata';
     elements.audioB = new Audio();
     elements.audioB.preload = 'metadata';
-    // Aktif player referansı
+    // Aktif oynatıcı referansı
     elements.audio = elements.audioA;
 }
 
@@ -506,14 +506,14 @@ function hideUtilityPage(pageEl, btnEl) {
 }
 
 function closeAllUtilityPages() {
-    // Download uses special close logic (hide when running)
+    // İndirme özel kapatma mantığı kullanır (çalışırken gizle)
     try { closeDownloadModal(false); } catch { }
     hideUtilityPage(elements.settingsPage, elements.settingsBtn);
     hideUtilityPage(elements.securityPage, elements.securityBtn);
 }
 
 // ============================================
-// SETTINGS
+// AYARLAR
 // ============================================
 async function loadSettings() {
     if (window.aurivo) {
@@ -523,7 +523,7 @@ async function loadSettings() {
         state.isShuffle = state.settings.shuffle || false;
         state.isRepeat = state.settings.repeat || false;
 
-        // Defaults for playback settings (if missing)
+        // Çalma ayarları için varsayılanlar (eksikse)
         if (!state.settings.playback) {
             state.settings.playback = {
                 crossfadeStopEnabled: true,
@@ -536,7 +536,7 @@ async function loadSettings() {
             };
         }
 
-        // Defaults for download settings (ytDownloader-style)
+        // İndirme ayarları için varsayılanlar (ytDownloader tarzı)
         if (!state.settings.download) {
             state.settings.download = {
                 downloadDir: '',
@@ -559,7 +559,7 @@ async function loadSettings() {
             };
         }
 
-        // Defaults for fullscreen video settings
+        // Tam ekran video ayarları için varsayılanlar
         if (!state.settings.videoFullscreen) {
             state.settings.videoFullscreen = {
                 stableVolume: false,
@@ -571,7 +571,7 @@ async function loadSettings() {
             };
         }
 
-        // UI'ı güncelle
+        // UI'yi güncelle
         elements.volumeSlider.value = state.volume;
         elements.volumeLabel.textContent = state.volume + '%';
         elements.audio.volume = state.volume / 100;
@@ -591,10 +591,10 @@ async function saveSettings() {
 }
 
 // ============================================
-// EVENT LISTENERS
+// OLAY DİNLEYİCİLERİ
 // ============================================
 function setupEventListeners() {
-    // Sidebar Navigation
+    // Kenar çubuğu Gezinti
     elements.sidebarBtns.forEach(btn => {
         btn.addEventListener('click', () => handleSidebarClick(btn));
     });
@@ -623,7 +623,7 @@ function setupEventListeners() {
         });
     }
 
-    // Restart modal (language)
+    // Yeniden başlatma modalı (dil)
     if (elements.restartModalClose) elements.restartModalClose.addEventListener('click', closeRestartModal);
     if (elements.restartModalNo) elements.restartModalNo.addEventListener('click', closeRestartModal);
     if (elements.restartModalYes) {
@@ -642,17 +642,17 @@ function setupEventListeners() {
         });
     }
 
-    // Web Platforms
+    // Web Platformları
     elements.platformBtns.forEach(btn => {
         btn.addEventListener('click', () => handlePlatformClick(btn));
     });
 
-    // FILE TREE - Event Delegation (ÖNEMLİ!)
+    // DOSYA AĞACI - Olay Devri (ÖNEMLİ!)
     if (elements.fileTree) {
         elements.fileTree.addEventListener('click', handleFileTreeClick);
         elements.fileTree.addEventListener('dblclick', handleFileTreeDblClick);
         elements.fileTree.addEventListener('contextmenu', handleFileTreeContextMenu);
-        // While doing mouse-drag selection, don't start HTML drag&drop
+        // Fareyle sürükleyerek seçim yaparken HTML sürükle-bırak başlatma
         elements.fileTree.addEventListener('dragstart', (e) => {
             if (!blockFileTreeDragStart) return;
             e.preventDefault();
@@ -660,22 +660,22 @@ function setupEventListeners() {
         }, true);
     }
 
-    // Global fallback: click'leri yakala (DOM değişiminde kaybolmasın)
+    // Global yedek: click'leri yakala (DOM değişiminde kaybolmasın)
     document.addEventListener('click', handleFileTreeClickGlobal, true);
     document.addEventListener('dblclick', handleFileTreeDblClickGlobal, true);
 
-    // Folder context menu dışına tıklanınca kapat
+    // Klasör bağlam menüsü dışına tıklanınca kapat
     document.addEventListener('click', () => {
         const menu = document.getElementById('folderContextMenu');
         if (menu) menu.classList.add('hidden');
     });
 
-    // Navigation
+    // Gezinti
     elements.backBtn.addEventListener('click', navigateBack);
     elements.forwardBtn.addEventListener('click', navigateForward);
     elements.refreshBtn.addEventListener('click', refreshCurrentView);
 
-    // Player Controls
+    // Oynatıcı Kontrolleri
     if (elements.clearPlaylistBtn) {
         elements.clearPlaylistBtn.addEventListener('click', clearPlaylistAll);
     }
@@ -687,15 +687,15 @@ function setupEventListeners() {
     elements.rewindBtn.addEventListener('click', () => seekBy(-10));
     elements.forwardSeekBtn.addEventListener('click', () => seekBy(10));
 
-    // Download
+    // İndirme
     if (elements.downloadBtn) {
         elements.downloadBtn.addEventListener('click', openDownloadModal);
     }
 
-    // Download settings (Preferences modal)
+    // İndirme ayarları (Tercihler modalı)
     setupDownloadPreferencesEvents();
 
-    // Music/Video toolbar buttons (kullanıcı hızlı ekleme)
+    // Müzik/Video araç çubuğu düğmeleri (kullanıcı hızlı ekleme)
     if (elements.musicAddFolderBtn) {
         elements.musicAddFolderBtn.addEventListener('click', async () => {
             try {
@@ -777,7 +777,7 @@ function setupEventListeners() {
         });
     }
 
-    // Visualizer (projectM)
+    // Görselleştirici (projectM)
     const visualizerBtn = document.getElementById('visualizer-btn');
     if (visualizerBtn) {
         visualizerBtn.addEventListener('click', () => {
@@ -789,29 +789,29 @@ function setupEventListeners() {
         });
     }
 
-    // Volume
+    // Ses Seviyesi
     elements.volumeBtn.addEventListener('click', toggleMute);
     elements.volumeSlider.addEventListener('input', handleVolumeChange);
 
-    // Seek - tek tıkla pozisyon ayarlama
+    // Atlama - tek tıkla pozisyon ayarlama
     elements.seekSlider.addEventListener('input', handleSeek);
     elements.seekSlider.addEventListener('click', handleSeekClick);
     elements.seekSlider.addEventListener('wheel', handleSeekWheel, { passive: false });
 
-    // Volume slider - tek tıkla ayarlama
+    // Ses Seviyesi kaydırıcısı - tek tıkla ayarlama
     elements.volumeSlider.addEventListener('click', handleVolumeClick);
 
-    // Volume slider - tekerlek ile ayarlama (5 kademeli)
+    // Ses Seviyesi kaydırıcısı - tekerlek ile ayarlama (5 kademeli)
     elements.volumeSlider.addEventListener('wheel', handleVolumeWheel);
 
-    // Audio Events - Her iki player için de event listener ekle
+    // Ses Olayları - Her iki oynatıcı için de olay dinleyici ekle
     setupAudioPlayerEvents(elements.audioA, 'A');
     setupAudioPlayerEvents(elements.audioB, 'B');
 
-    // Video Player Events
+    // Video Oynatıcı Olayları
     setupVideoPlayerEvents();
 
-    // Video kontrol butonları
+    // Video kontrol düğmeleri
     const fullscreenBtn = document.getElementById('fullscreenBtn');
     const videoMenuBtn = document.getElementById('videoMenuBtn');
 
@@ -823,15 +823,15 @@ function setupEventListeners() {
         videoMenuBtn.addEventListener('click', showVideoMenu);
     }
 
-    // Video player çift tıklama - tam ekran
+    // Video oynatıcı çift tıklama - tam ekran
     if (elements.videoPlayer) {
         elements.videoPlayer.addEventListener('dblclick', toggleVideoFullscreen);
     }
 
-    // TAM EKRAN VIDEO KONTROL PANELİ - Event Listeners
+    // TAM EKRAN VIDEO KONTROL PANELİ - Olay Dinleyicileri
     setupFullscreenVideoControls();
 
-    // Settings (in-app page)
+    // Ayarlar (uygulama içi sayfa)
     if (elements.closeSettings) elements.closeSettings.addEventListener('click', closeSettings);
     if (elements.settingsCancel) elements.settingsCancel.addEventListener('click', closeSettings);
     if (elements.settingsOk) elements.settingsOk.addEventListener('click', () => { applySettings(); closeSettings(); });
@@ -845,7 +845,7 @@ function setupEventListeners() {
 
     if (elements.resetPlayback) elements.resetPlayback.addEventListener('click', resetPlaybackDefaults);
 
-    // Crossfade Auto checkbox dependency
+    // Çapraz Geçiş Otomatik onay kutusu bağımlılığı
     const crossfadeAuto = document.getElementById('crossfadeAuto');
     const sameAlbumNo = document.getElementById('sameAlbumNoCrossfade');
     if (crossfadeAuto && sameAlbumNo) {
@@ -854,25 +854,25 @@ function setupEventListeners() {
         });
     }
 
-    // Keyboard Shortcuts
+    // Klavye Kısayolları
     document.addEventListener('keydown', handleKeyboard);
 
-    // Drag & Drop - geliştirilmiş
+    // Sürükle & Bırak - geliştirilmiş
     setupDragAndDrop();
 
-    // Download UI
+    // İndirme UI
     setupDownloadModalEvents();
     setupDownloadIPC();
 
-    // Security UI
+    // Güvenlik UI
     setupSecurityUI();
 
-    // WebView Navigation Events (YouTube track change detection)
+    // WebView Gezinti Olayları (YouTube parça değişimi tespiti)
     if (elements.webView) {
         elements.webView.addEventListener('did-navigate', handleWebNavigation);
         elements.webView.addEventListener('did-navigate-in-page', handleWebNavigation);
 
-        // Web Sync Listener (YouTube olaylarını yakala)
+        // Web Senkron Dinleyici (YouTube olaylarını yakala)
         elements.webView.addEventListener('console-message', (e) => {
             if (e.message.startsWith('AURIVO_SYNC:')) {
                 try {
@@ -882,7 +882,7 @@ function setupEventListeners() {
             }
         });
 
-        // WebView Sync: MediaSession/Video bilgilerini yakala (MPRIS + kapak + web now-playing için).
+        // WebView Senkron: MediaSession/Video bilgilerini yakala (MPRIS + kapak + web şimdi-çalıyor için).
         // Not: Bazı Chromium sürümlerinde navigator.mediaSession override edilemez (non-configurable).
         // Bu yüzden "disable" yerine güvenli polling + event dinleme ile AURIVO_SYNC mesajları üretiyoruz.
         elements.webView.addEventListener('dom-ready', () => {
@@ -929,7 +929,7 @@ function setupEventListeners() {
                                 const ct = Number(media.currentTime) || 0;
                                 const dur = Number(media.duration) || 0;
                                 const paused = !!media.paused;
-                                // 0.5s resolution reduces spam
+                                // 0.5s çözünürlük spam'i azaltır
                                 const key = [Math.floor(ct * 2) / 2, Math.floor(dur), paused].join('|');
                                 if (!force && key === lastTimeKey) return;
                                 lastTimeKey = key;
@@ -980,7 +980,7 @@ function setupEventListeners() {
         });
     }
 
-    // System Tray Media Control Listener
+    // Sistem Tepsisi Medya Kontrol Dinleyicisi
     setupSystemTrayControl();
 }
 
@@ -1169,7 +1169,7 @@ function setupDownloadPreferencesEvents() {
 }
 
 // ============================================
-// SYSTEM TRAY MEDIA CONTROL
+// SİSTEM TEPSİSİ MEDYA KONTROLÜ
 // ============================================
 function setupSystemTrayControl() {
     if (!window.aurivo || !window.aurivo.onMediaControl) {
@@ -1177,7 +1177,7 @@ function setupSystemTrayControl() {
         return;
     }
 
-    // Main process'ten gelen media control komutlarını dinle
+    // Ana süreçten gelen medya kontrol komutlarını dinle
     window.aurivo.onMediaControl((action) => {
         console.log('System tray media control:', action);
 
@@ -1220,7 +1220,7 @@ function setupSystemTrayControl() {
             case 'stop-after-current':
                 state.stopAfterCurrent = !state.stopAfterCurrent;
                 console.log('Stop after current:', state.stopAfterCurrent);
-                updateTrayState(); // Tray menüsünü güncelle
+                updateTrayState(); // Tepsi menüsünü güncelle
                 break;
             case 'like':
                 // TODO: Beğen özelliği (favorilere ekle/çıkar)
@@ -1228,19 +1228,19 @@ function setupSystemTrayControl() {
                 break;
         }
 
-        // Her media control'den sonra tray durumunu güncelle
+        // Her medya kontrolden sonra tepsi durumunu güncelle
         updateTrayState();
     });
 
-    // MPRIS seek event (ortam oynatıcıdan süre çubuğu sürükleme)
+    // MPRIS seek olayı (ortam oynatıcıdan süre çubuğu sürükleme)
     if (window.aurivo.onMPRISSeek) {
         window.aurivo.onMPRISSeek(async (offsetMicroseconds) => {
             console.log('MPRIS seek offset (relative):', offsetMicroseconds);
             const offsetSeconds = offsetMicroseconds / 1000000;
 
-            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native engine'e düşmesin)
+            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native motor'a düşmesin)
             if (state.activeMedia === 'web' && elements.webView) {
-                // Web/YouTube Relative Seek
+                // Web/YouTube Göreli Atlama
                 try {
                     const delta = Number(offsetSeconds);
                     if (!isNaN(delta) && isFinite(delta)) {
@@ -1273,15 +1273,15 @@ function setupSystemTrayControl() {
         });
     }
 
-    // MPRIS position event (ortam oynatıcıdan pozisyon değişikliği - MUTLAK pozisyon)
+    // MPRIS position olayı (ortam oynatıcıdan pozisyon değişikliği - MUTLAK pozisyon)
     if (window.aurivo.onMPRISPosition) {
         window.aurivo.onMPRISPosition(async (positionMicroseconds) => {
             const positionSeconds = positionMicroseconds / 1000000;
             console.log('MPRIS SetPosition (absolute):', positionSeconds, 'seconds');
 
-            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native engine'e düşmesin)
+            // ÖNCE aktif medya tipine göre yönlendir (web oynuyorsa native motor'a düşmesin)
             if (state.activeMedia === 'web' && elements.webView) {
-                // Web/YouTube Absolute Seek
+                // Web/YouTube Mutlak Atlama
                 try {
                     const pos = Number(positionSeconds);
                     if (!isNaN(pos) && isFinite(pos)) {
@@ -1330,7 +1330,7 @@ function setupSystemTrayControl() {
     console.log('System tray media control listener kuruldu');
 }
 
-// System tray'e güncel playback state gönder
+// Sistem tepsisine güncel oynatma durumu gönder
 function updateTrayState() {
     if (!window.aurivo || !window.aurivo.updateTrayState) return;
 
@@ -1354,7 +1354,7 @@ function updateTrayState() {
     });
 }
 
-// Web/YouTube navigasyonunda MPRIS'i sıfırla
+// Web/YouTube gezintisinde MPRIS'i sıfırla
 function handleWebNavigation() {
     if (state.activeMedia === 'web') {
         console.log('[WEB] Navigation detected, resetting MPRIS position');
@@ -1368,7 +1368,7 @@ function handleWebNavigation() {
         updateMPRISMetadata();
     }
 
-    // Security page is URL-aware
+    // Güvenlik sayfası URL farkındadır
     if (isPageVisible(elements.securityPage)) {
         updateSecurityUI();
     }
@@ -1378,7 +1378,7 @@ function handleWebNavigation() {
 async function updateMPRISMetadata() {
     if (!window.aurivo || !window.aurivo.updateMPRISMetadata) return;
 
-    // Duration ve position al
+    // Süre ve pozisyon al
     let duration = 0;
     let position = 0;
     let title = 'Bilinmeyen';
@@ -1400,13 +1400,13 @@ async function updateMPRISMetadata() {
             const fileName = window.aurivo?.path?.basename?.(state.currentVideoPath || '') || video.src.split('/').pop().split('#')[0].split('?')[0];
             title = decodeURIComponent(String(fileName || '')).replace(/\.[^/.]+$/, '') || 'Video';
             artist = 'Video';
-            // FIX: DBus objectPath için '-' gibi karakterler sorun çıkarabilir; güvenli trackId üret.
+            // DÜZELTME: DBus objectPath için '-' gibi karakterler sorun çıkarabilir; güvenli parçaId üret.
             trackId = `video_${Math.max(0, Number(state.currentVideoIndex) || 0)}`;
             canGoNext = state.videoFiles.length > 1 && state.currentVideoIndex < state.videoFiles.length - 1;
             canGoPrevious = state.videoFiles.length > 1 && state.currentVideoIndex > 0;
         }
     } else if (state.activeMedia === 'audio') {
-        // Audio için metadata
+        // Ses için metadata
         const currentTrack = state.playlist[state.currentIndex];
         if (!currentTrack) return;
 
@@ -1427,11 +1427,11 @@ async function updateMPRISMetadata() {
 
         if (useNativeAudio && window.aurivo?.audio) {
             try {
-                // getDuration saniye döndürüyor, getPosition milisaniye
+                // getDuration saniye döndürür, getPosition milisaniye
                 duration = await window.aurivo.audio.getDuration(); // saniye
                 position = (await window.aurivo.audio.getPosition()) / 1000; // ms -> saniye
             } catch (e) {
-                // Ignore
+                // yoksay
             }
         } else {
             const activePlayer = getActiveAudioPlayer();
@@ -1444,7 +1444,7 @@ async function updateMPRISMetadata() {
         title = state.webTitle || elements.nowPlayingLabel.textContent.replace('Şu An Çalınan: ', '') || 'Web Medya';
         artist = state.webArtist || 'Aurivo Web';
         album = state.webAlbum || 'Online';
-        trackId = `web_${state.webTrackId}`; // FIX: Hyphen replaced with underscore for safer DBus path
+        trackId = `web_${state.webTrackId}`; // DÜZELTME: Daha güvenli DBus yolu için tire alt çizgiyle değiştirildi
         duration = state.webDuration || 0;
         position = state.webPosition || 0;
         canGoNext = false;
@@ -1487,7 +1487,7 @@ function handleWebSync(data) {
     state.webPosition = data.currentTime || 0;
     state.webDuration = data.duration || 0;
 
-    // timeupdate payload can carry paused state (polling)
+    // timeupdate yükü duraklatma durumunu taşıyabilir (yoklama)
     if (data.type === 'timeupdate' && typeof data.paused === 'boolean') {
         const nextPlaying = !data.paused;
         if (state.isPlaying !== nextPlaying) {
@@ -1527,13 +1527,13 @@ function handleWebSync(data) {
 function setupDragAndDrop() {
     const dropZone = elements.playlist;
 
-    // Prevent default drag behaviors
+    // Varsayılan sürükleme davranışlarını engelle
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
         document.body.addEventListener(eventName, preventDefaults, false);
     });
 
-    // Highlight drop zone when item is dragged over
+    // Öğe üzerine sürüklendiğinde bırakma alanını vurgula
     ['dragenter', 'dragover'].forEach(eventName => {
         dropZone.addEventListener(eventName, () => {
             dropZone.classList.add('drag-over');
@@ -1546,11 +1546,11 @@ function setupDragAndDrop() {
         }, false);
     });
 
-    // Handle dropped files - hem harici dosyalardan hem de file tree'den
+    // Bırakılan dosyaları işle - hem harici dosyalardan hem de dosya ağacından
     dropZone.addEventListener('drop', handleFileDrop, false);
 }
 
-// Tree item sürükleme başlangıcı
+// Ağaç öğesi sürükleme başlangıcı
 function handleTreeItemDragStart(e) {
     // Seçili tüm dosyaları al
     const selectedItems = document.querySelectorAll('.tree-item.file.selected');
@@ -1577,7 +1577,7 @@ function handleTreeItemDragStart(e) {
     e.target.closest('.tree-item').classList.add('dragging');
 }
 
-// Tree item sürükleme bitişi
+// Ağaç öğesi sürükleme bitişi
 function handleTreeItemDragEnd(e) {
     e.target.closest('.tree-item').classList.remove('dragging');
 }
@@ -1588,25 +1588,25 @@ function preventDefaults(e) {
 }
 
 // ============================================
-// AUDIO PLAYER EVENTS SETUP
+// SES OYNATICI OLAY KURULUMU
 // ============================================
 function setupAudioPlayerEvents(player, playerId) {
     // Zaman güncelleme
     player.addEventListener('timeupdate', () => {
-        // Native audio kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
+        // Native ses kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
         if (useNativeAudio) return;
 
-        // Sadece aktif player için güncelle
+        // Sadece aktif oynatıcı için güncelle
         if (getActiveAudioPlayer() === player) {
             updateTimeDisplay();
-            // Otomatik crossfade kontrolü
+            // Otomatik çapraz geçiş kontrolü
             maybeStartAutoCrossfade();
         }
     });
 
     // Metadata yüklendiğinde
     player.addEventListener('loadedmetadata', () => {
-        // Native audio kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
+        // Native ses kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
         if (useNativeAudio) return;
 
         if (getActiveAudioPlayer() === player) {
@@ -1616,7 +1616,7 @@ function setupAudioPlayerEvents(player, playerId) {
 
     // Parça bittiğinde
     player.addEventListener('ended', () => {
-        // Native audio kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
+        // Native ses kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
         if (useNativeAudio) return;
 
         if (getActiveAudioPlayer() === player) {
@@ -1626,7 +1626,7 @@ function setupAudioPlayerEvents(player, playerId) {
 
     // Play/Pause durumu
     player.addEventListener('play', () => {
-        // Native audio kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
+        // Native ses kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
         if (useNativeAudio) return;
 
         if (getActiveAudioPlayer() === player) {
@@ -1635,7 +1635,7 @@ function setupAudioPlayerEvents(player, playerId) {
     });
 
     player.addEventListener('pause', () => {
-        // Native audio kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
+        // Native ses kullanıyorken HTML5 audio event'lerini tamamen devre dışı bırak
         if (useNativeAudio) return;
 
         if (getActiveAudioPlayer() === player) {
@@ -1644,7 +1644,7 @@ function setupAudioPlayerEvents(player, playerId) {
     });
 }
 
-// Video Player Event Listeners
+// Video Oynatıcı Olay Dinleyicileri
 function setupVideoPlayerEvents() {
     const video = elements.videoPlayer;
     if (!video) return;
@@ -1654,7 +1654,7 @@ function setupVideoPlayerEvents() {
         if (state.activeMedia === 'video') {
             updateTimeDisplay();
 
-            // MPRIS position'ı throttle et (her 2 saniyede bir)
+            // MPRIS position'ını sınırla (her 2 saniyede bir)
             const currentSecInt = Math.floor(video.currentTime || 0);
             if (currentSecInt !== state.lastMPRISPosition && currentSecInt % 2 === 0) {
                 state.lastMPRISPosition = currentSecInt;
@@ -1704,7 +1704,7 @@ function setupVideoPlayerEvents() {
     });
 }
 
-// Video tam ekran toggle
+// Video tam ekran geçişi
 function toggleVideoFullscreen() {
     const videoPage = document.getElementById('videoPage');
 
@@ -1734,13 +1734,13 @@ function toggleVideoFullscreen() {
 // Python uygulamasından uyarlandı
 // ============================================
 
-// Tam ekran kontrol state
+// Tam ekran kontrol durumu
 const fsControlState = {
     hideTimer: null,
     hideDelay: 3000, // 3 saniye
     isVisible: true,
     currentSpeed: 1.0,
-    currentFps: 0, // 0 = Auto
+    currentFps: 0, // 0 = Otomatik
     seeking: false,
     currentBrightness: 1.0,
     isMenuOpen: false,
@@ -1758,7 +1758,7 @@ function fsT(key, fallback, vars) {
         const v = window.i18n?.tSync?.(key, vars);
         if (typeof v === 'string' && v && v !== key) return v;
     } catch {
-        // ignore
+        // yoksay
     }
     return fallback ?? String(key);
 }
@@ -1768,7 +1768,7 @@ function uiT(key, fallback, vars) {
         const v = window.i18n?.tSync?.(key, vars);
         if (typeof v === 'string' && v && v !== key) return v;
     } catch {
-        // ignore
+        // yoksay
     }
     return fallback ?? String(key);
 }
@@ -1803,7 +1803,7 @@ const fsMenuPortalMap = new WeakMap();
 
 function portalizeFsMenu(menuEl) {
     // Portal devre dışı - menüler videoFsControls içinde kalacak
-    // Bu video overlay plane sorunlarını önler
+    // Bu video overlay düzlemi sorunlarını önler
     console.log('🔧 [DEBUG] portalizeFsMenu devre dışı - menü içeride kalıyor:', menuEl?.id);
     return;
 }
@@ -1825,8 +1825,8 @@ function isVideoFullscreenActive() {
         document.webkitFullscreenElement ||
         document.mozFullScreenElement;
 
-    // Bazı sistemlerde fullscreen video elementinde/child node'da açılabiliyor.
-    // Bu durumda da video sayfası fullscreen kabul edilsin.
+    // Bazı sistemlerde tam ekran video elementinde/child node'da açılabiliyor.
+    // Bu durumda da video sayfası tam ekran kabul edilsin.
     return !!activeEl && (activeEl === videoPage || videoPage.contains(activeEl));
 }
 
@@ -2079,7 +2079,7 @@ function setupFullscreenVideoControls() {
         });
     });
 
-    // Toggle switches (stable-volume, volume-boost, cinematic-lighting, annotations)
+    // Aç/Kapat switches (stable-volume, volume-boost, cinematic-lighting, annotations)
     document.querySelectorAll('#fsSettingsMenu .yt-toggle-switch').forEach(sw => {
         sw.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2239,7 +2239,7 @@ function handleFullscreenChange() {
         showFsControls();
         startFsHideTimer();
 
-        // Linux/Wayland/X11'de bazı durumlarda video overlay plane üstte kalabiliyor.
+        // Linux/Wayland/X11'de bazı durumlarda video overlay düzlemi üstte kalabiliyor.
         // Video'ya sürekli filter uygulamak overlay kullanımını azaltır ve UI'ın görünmesini sağlar.
         if (elements.videoPlayer) {
             elements.videoPlayer.style.filter = `brightness(${fsControlState.currentBrightness.toFixed(3)})`;
@@ -2559,7 +2559,7 @@ function handleFsSpeedClick() {
 }
 
 function handleFsFpsClick() {
-    const fpsOptions = [0, 24, 30, 60]; // 0 = Auto
+    const fpsOptions = [0, 24, 30, 60]; // 0 = Otomatik
     const currentIndex = fpsOptions.indexOf(fsControlState.currentFps);
     const nextIndex = (currentIndex + 1) % fpsOptions.length;
     const newFps = fpsOptions[nextIndex];
@@ -2667,7 +2667,7 @@ function updateFsControlsState() {
     // Fullscreen ses ikonu (Material Icons Round)
     updateFsVolumeIcon();
 
-    // Volume slider
+    // Ses Seviyesi slider
     const volumeSlider = document.getElementById('fsVolumeSlider');
     const volumeLabel = document.getElementById('fsVolumeLabel');
 
@@ -2677,7 +2677,7 @@ function updateFsControlsState() {
         volumeLabel.textContent = volume + '%';
     }
 
-    // Settings menu toggles/labels
+    // Ayarlar menu toggles/labels
     hydrateFsSettingsUI();
 }
 
@@ -2821,7 +2821,7 @@ function setFsSleepTimer(minutes) {
                 safeNotify(fsT('videoFs.notify.sleepTimerPaused', 'Sleep timer: Video paused.'), 'info', 2500);
             }
         } catch {
-            // ignore
+            // yoksay
         }
         fsControlState.sleepTimerId = null;
     }, minutes * 60 * 1000);
@@ -2901,10 +2901,10 @@ function handleSidebarClick(btn) {
     const page = btn.dataset.page;
     const panel = btn.dataset.panel;
 
-    // Utility pages should not remain open when switching tabs
+    // Yardımcı pages should not remain open when switching tabs
     closeAllUtilityPages();
 
-    // Sidebar butonlarını güncelle
+    // Kenar çubuğu butonlarını güncelle
     elements.sidebarBtns.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
@@ -2932,7 +2932,7 @@ function handleSidebarClick(btn) {
         if (elements.libraryActionsAudio) elements.libraryActionsAudio.classList.toggle('hidden', state.mediaFilter !== 'audio');
         if (elements.libraryActionsVideo) elements.libraryActionsVideo.classList.toggle('hidden', state.mediaFilter !== 'video');
     } catch {
-        // ignore
+        // yoksay
     }
 
     // *** SEKMELERİ İZOLE ET - DİĞER MEDYALARI KAPAT ***
@@ -2981,7 +2981,7 @@ function handleSidebarClick(btn) {
             initializeFileTree();
         }
     } catch {
-        // ignore
+        // yoksay
     }
 }
 
@@ -3040,7 +3040,7 @@ function stopAudio() {
         elements.audioB.load(); // Tamamen sıfırla
     }
 
-    // Crossfade state'lerini sıfırla
+    // Çapraz geçiş durumu'lerini sıfırla
     state.crossfadeInProgress = false;
     state.autoCrossfadeTriggered = false;
     state.trackAboutToEnd = false;
@@ -3076,7 +3076,7 @@ function stopWeb() {
 }
 
 function switchPage(pageName) {
-    // Utility buttons should not stay active when switching main pages
+    // Yardımcı buttons should not stay active when switching main pages
     if (elements.downloadBtn) elements.downloadBtn.classList.remove('active');
     if (elements.settingsBtn) elements.settingsBtn.classList.remove('active');
     if (elements.securityBtn) elements.securityBtn.classList.remove('active');
@@ -3110,7 +3110,7 @@ function handlePlatformClick(btn) {
     const url = btn.dataset.url;
     const platform = btn.dataset.platform || 'web';
 
-    // Utility pages should not remain open when switching to a platform
+    // Yardımcı pages should not remain open when switching to a platform
     closeAllUtilityPages();
 
     // Önce diğer medyaları kapat (RAM tasarrufu)
@@ -3345,7 +3345,7 @@ function removeUserFolder(path) {
     console.log('Klasör kaldırıldı:', path);
 }
 
-// EVENT DELEGATION - File Tree Click Handler
+// EVENT DELEGATION - File Tree Click İşleyici
 function handleFileTreeClick(e) {
     const item = e.target.closest('.tree-item');
     if (!item) return;
@@ -3364,7 +3364,7 @@ function handleFileTreeClick(e) {
     }
 }
 
-// EVENT DELEGATION - File Tree Double Click Handler
+// EVENT DELEGATION - File Tree Double Click İşleyici
 function handleFileTreeDblClick(e) {
     const item = e.target.closest('.tree-item');
     if (!item) return;
@@ -3521,7 +3521,7 @@ function createTreeItem(name, path, isDirectory, icon = null) {
                 fileTreeDragTrack.selecting = true;
                 blockFileTreeDragStart = true;
 
-                // Start selection from the first item.
+                // Başlat selection from the first item.
                 document.querySelectorAll('.tree-item.file').forEach(i => i.classList.remove('selected'));
                 fileTreeDragTrack.startItem.classList.add('selected');
                 lastClickedFileItem = fileTreeDragTrack.startItem;
@@ -3876,7 +3876,7 @@ function clearPlaylistAll() {
         try {
             stopAudio();
         } catch {
-            // ignore
+            // yoksay
         }
     }
 
@@ -4143,7 +4143,7 @@ async function playIndex(index) {
     console.log('playIndex: extractAlbumArt çağrılıyor, path:', item.path);
     extractAlbumArt(item.path);
 
-    // Crossfade state'lerini sıfırla
+    // Çapraz geçiş durumu'lerini sıfırla
     state.autoCrossfadeTriggered = false;
     state.trackAboutToEnd = false;
     state.trackAboutToEndTriggered = false;
@@ -4520,7 +4520,7 @@ async function extractVideoCover(filePath) {
             }
         }
     } catch {
-        // ignore
+        // yoksay
     }
     updateCoverArt(null, 'video');
 }
@@ -4843,7 +4843,7 @@ function startCrossfadeToIndex(index, ms) {
     newPlayer.volume = 0;
     newPlayer.play();
 
-    // UI'ı güncelle
+    // UI'yi güncelle
     state.currentIndex = index;
     state.isPlaying = true;
     elements.nowPlayingLabel.textContent = 'Şu An Çalınan: ' + item.name;
@@ -4880,7 +4880,7 @@ function startCrossfadeToIndex(index, ms) {
     console.log('Crossfade başlatıldı:', item.name);
 }
 
-// Otomatik crossfade kontrolü (parça bitişi)
+// Otomatik çapraz geçiş kontrolü (parça bitişi)
 function maybeStartAutoCrossfade() {
     // Native audio kullanıyorken HTML5 audio crossfade'i devre dışı
     if (useNativeAudio) return;
@@ -5356,7 +5356,7 @@ async function getClipboardTextSafe() {
 }
 
 async function prefillDownloadFields() {
-    // Default folder: Downloads
+    // Varsayılan folder: Downloads
     try {
         const prefDir = String(state?.settings?.download?.downloadDir || '').trim();
         if (elements.downloadFolder && prefDir) {
@@ -5367,7 +5367,7 @@ async function prefillDownloadFields() {
         }
     } catch { }
 
-    // Apply saved download preferences into modal controls
+    // Uygula saved download preferences into modal controls
     try {
         const dl = state?.settings?.download || {};
         if (elements.downloadVideoQuality && dl.preferredVideoQuality) elements.downloadVideoQuality.value = dl.preferredVideoQuality;
@@ -5866,7 +5866,7 @@ function toggleRepeat() {
 }
 
 // ============================================
-// SETTINGS MODAL
+// AYARLAR MODAL
 // ============================================
 function openSettings() {
     if (!elements.settingsPage) return;
@@ -5911,7 +5911,7 @@ function loadSettingsToUI() {
     document.getElementById('fadeOnPause').checked = pb.fadeOnPauseResume;
     document.getElementById('pauseFadeMs').value = pb.pauseFadeMs;
 
-    // Download prefs
+    // İndirme prefs
     const dl = state.settings.download || {};
     if (elements.downloadPrefDirPath) elements.downloadPrefDirPath.textContent = dl.downloadDir || '-';
     if (elements.downloadPrefVideoQuality) elements.downloadPrefVideoQuality.value = dl.preferredVideoQuality || 'auto';
@@ -5931,7 +5931,7 @@ function loadSettingsToUI() {
     if (elements.downloadPrefPlaylistFoldernameFormat) elements.downloadPrefPlaylistFoldernameFormat.value = dl.playlistFoldernameFormat || '%(playlist_title)s';
     if (elements.downloadPrefCustomArgs) elements.downloadPrefCustomArgs.value = dl.customArgs || '';
 
-    // Toggle rows
+    // Aç/Kapat rows
     if (elements.downloadPrefConfigRow && elements.downloadPrefUseConfig) {
         elements.downloadPrefConfigRow.classList.toggle('hidden', !elements.downloadPrefUseConfig.checked);
     }
@@ -5956,7 +5956,7 @@ function applySettings() {
         pauseFadeMs: parseInt(document.getElementById('pauseFadeMs').value)
     };
 
-    // Download prefs
+    // İndirme prefs
     state.settings.download = {
         downloadDir: String(elements.downloadPrefDirPath?.textContent || '').trim() === '-' ? '' : String(elements.downloadPrefDirPath?.textContent || '').trim(),
         preferredVideoQuality: String(elements.downloadPrefVideoQuality?.value || 'auto'),
@@ -6145,7 +6145,7 @@ function handleKeyboard(e) {
 // ============================================
 let audioContext, analyser, dataArray;
 
-// Visualizer Settings
+// Görselleştirici Ayarları
 const VisualizerSettings = {
     currentAnalyzer: 'bar',
     currentFramerate: 30,
@@ -6154,7 +6154,7 @@ const VisualizerSettings = {
     reflectionEnabled: false,
     hueOffset: 0,
 
-    // Available analyzers
+    // Mevcut analyzerlar
     analyzers: {
         'bar': 'Bar çözümleyici',
         'block': 'Blok çözümleyici',
@@ -6200,18 +6200,18 @@ const VisualizerSettings = {
 };
 
 // ============================================
-// AURIVO BAR ANALYZER - Qt/C++ Port to JavaScript
-// Based on dli/analyzers/baranalyzer.cpp
+// AURIVO BAR ANALYZER - Qt/C++'den JavaScript'e taşıma
+// Temel: dli/analyzers/baranalyzer.cpp
 // ============================================
 const BarAnalyzer = {
-    // Constants from baranalyzer.h
+    // baranalyzer.h sabitleri
     ROOF_HOLD_TIME: 48,
     ROOF_VELOCITY_REDUCTION_FACTOR: 32,
     NUM_ROOFS: 16,
     COLUMN_WIDTH: 4,
     GAP: 1,
 
-    // State
+    // Durum
     bandCount: 64,
     barVector: [],
     roofVector: [],
@@ -6223,13 +6223,13 @@ const BarAnalyzer = {
     psychedelicEnabled: true,
     hueOffset: 0,
 
-    // Initialize analyzer
+    // Analyzer'ı başlat
     init(canvas) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.resize();
 
-        // Create level mapper (logarithmic scale)
+        // Seviye eşleyici oluştur (logaritmik ölçek)
         const MAX_AMPLITUDE = 1.0;
         const F = (canvas.height - 2) / (Math.log10(255) * MAX_AMPLITUDE);
 
@@ -6252,20 +6252,20 @@ const BarAnalyzer = {
         this.maxDown = -Math.max(1, Math.floor(height / 50));
         this.maxUp = Math.max(1, Math.floor(height / 25));
 
-        // Reset arrays
+        // Dizileri sıfırla
         this.barVector = new Array(this.bandCount).fill(0);
         this.roofVector = new Array(this.bandCount).fill(height - 5);
         this.roofVelocityVector = new Array(this.bandCount).fill(this.ROOF_VELOCITY_REDUCTION_FACTOR);
         this.roofMem = Array.from({ length: this.bandCount }, () => []);
     },
 
-    // Get psychedelic color based on position
+    // Konuma göre psikedelik renk al
     getColor(index, total, brightness = 100) {
         const hue = (this.hueOffset + (index / total) * 360) % 360;
         return `hsl(${hue}, 100%, ${brightness}%)`;
     },
 
-    // Get gradient for bar
+    // Bar için gradient al
     getBarGradient(x, height, barHeight) {
         const gradient = this.ctx.createLinearGradient(x, this.canvas.height, x, this.canvas.height - barHeight);
 
@@ -6283,46 +6283,46 @@ const BarAnalyzer = {
         return gradient;
     },
 
-    // Main analyze function - processes spectrum data
+    // Ana analiz fonksiyonu - spektrum verisini işler
     analyze(spectrumData, isPlaying) {
         const ctx = this.ctx;
         const canvas = this.canvas;
         const width = canvas.width;
         const height = canvas.height;
 
-        // Clear canvas
+        // Canvas'ı temizle
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, width, height);
 
         if (!isPlaying || !spectrumData || spectrumData.length === 0) {
-            // Draw idle bars
+            // Boştaki barları çiz
             this.drawIdleBars();
             return;
         }
 
-        // Update hue for psychedelic mode
+        // Psikedelik mod için hue güncelle
         if (this.psychedelicEnabled) {
             this.hueOffset = (this.hueOffset + 0.5) % 360;
         }
 
-        // Interpolate spectrum data to match band count
+        // Bant sayısına uyması için spektrum verisini enterpole et
         const scope = this.interpolateSpectrum(spectrumData, this.bandCount);
 
-        // Process each band
+        // Her bandı işle
         for (let i = 0; i < this.bandCount; i++) {
             const x = i * (this.COLUMN_WIDTH + this.GAP);
 
-            // Map spectrum value to height
+            // Spektrum değerini yüksekliğe eşle
             let y2 = Math.floor(scope[i] * 256);
             y2 = this.lvlMapper[Math.min(y2, 255)];
 
-            // Smooth falling
+            // Yumuşak düşüş
             const change = y2 - this.barVector[i];
             if (change < this.maxDown) {
                 y2 = this.barVector[i] + this.maxDown;
             }
 
-            // Update roof (peak indicator)
+            // Tavanı güncelle (peak göstergesi)
             if (y2 > this.roofVector[i]) {
                 this.roofVector[i] = y2;
                 this.roofVelocityVector[i] = 1;
@@ -6330,18 +6330,18 @@ const BarAnalyzer = {
 
             this.barVector[i] = y2;
 
-            // Draw bar with gradient
+            // Gradient ile bar çiz
             if (y2 > 0) {
                 ctx.fillStyle = this.getBarGradient(x, height, y2);
                 ctx.fillRect(x, height - y2, this.COLUMN_WIDTH, y2);
             }
 
-            // Draw roof (peak indicators)
+            // Tavanı çiz (peak göstergeleri)
             if (this.roofMem[i].length > this.NUM_ROOFS) {
                 this.roofMem[i].shift();
             }
 
-            // Draw fading roof trail
+            // Sönen tavan izini çiz
             for (let c = 0; c < this.roofMem[i].length; c++) {
                 const roofY = this.roofMem[i][c];
                 const alpha = 1 - (c / this.NUM_ROOFS);
@@ -6350,16 +6350,16 @@ const BarAnalyzer = {
                 ctx.fillRect(x, roofY, this.COLUMN_WIDTH, 2);
             }
 
-            // Current roof
+            // Mevcut tavan
             const roofY = height - this.roofVector[i] - 2;
             this.roofMem[i].push(roofY);
 
-            // Draw current roof (peak)
+            // Mevcut tavanı çiz (peak)
             const roofHue = (this.hueOffset + (i / this.bandCount) * 360 + 180) % 360;
             ctx.fillStyle = `hsl(${roofHue}, 100%, 80%)`;
             ctx.fillRect(x, roofY, this.COLUMN_WIDTH, 2);
 
-            // Update roof physics
+            // Tavan fiziğini güncelle
             if (this.roofVelocityVector[i] !== 0) {
                 if (this.roofVelocityVector[i] > 32) {
                     this.roofVector[i] -= Math.floor((this.roofVelocityVector[i] - 32) / 20);
@@ -6375,7 +6375,7 @@ const BarAnalyzer = {
         }
     },
 
-    // Draw idle bars when not playing
+    // Boştaki barları çiz when not playing
     drawIdleBars() {
         const ctx = this.ctx;
         const canvas = this.canvas;
@@ -6390,7 +6390,7 @@ const BarAnalyzer = {
         this.hueOffset = (this.hueOffset + 0.2) % 360;
     },
 
-    // Interpolate spectrum data
+    // Spektrum verisini enterpole et
     interpolateSpectrum(data, targetSize) {
         const result = new Array(targetSize);
         const ratio = data.length / targetSize;
@@ -6401,7 +6401,7 @@ const BarAnalyzer = {
             const high = Math.min(low + 1, data.length - 1);
             const frac = srcIndex - low;
 
-            // Linear interpolation with slight boost for lower frequencies
+            // Düşük frekanslara hafif boost ile lineer enterpolasyon
             const boost = 1 + (1 - i / targetSize) * 0.5;
             result[i] = ((1 - frac) * data[low] + frac * data[high]) * boost;
         }
@@ -6411,7 +6411,7 @@ const BarAnalyzer = {
 };
 
 // ============================================
-// BLOCK ANALYZER - Qt/C++ Port to JavaScript
+// BLOCK ANALYZER - Qt/C++'den JavaScript'e taşıma
 // Based on dli/analyzers/blockanalyzer.cpp
 // ============================================
 const BlockAnalyzer = {
@@ -6533,7 +6533,7 @@ const BlockAnalyzer = {
 };
 
 // ============================================
-// BOOM ANALYZER - Qt/C++ Port to JavaScript
+// BOOM ANALYZER - Qt/C++'den JavaScript'e taşıma
 // Based on dli/analyzers/boomanalyzer.cpp
 // ============================================
 const BoomAnalyzer = {
@@ -6623,7 +6623,7 @@ const BoomAnalyzer = {
 
             const y = height - this.barHeight[i];
 
-            // Draw bar with gradient
+            // Gradient ile bar çiz
             if (this.barHeight[i] > 0) {
                 const gradient = ctx.createLinearGradient(x, height, x, y);
                 if (VisualizerSettings.psychedelicEnabled) {
@@ -6677,7 +6677,7 @@ const BoomAnalyzer = {
 };
 
 // ============================================
-// TURBINE ANALYZER - Qt/C++ Port to JavaScript
+// TURBINE ANALYZER - Qt/C++'den JavaScript'e taşıma
 // Based on dli/analyzers/turbine.cpp
 // ============================================
 const TurbineAnalyzer = {
@@ -6829,7 +6829,7 @@ const TurbineAnalyzer = {
 };
 
 // ============================================
-// SONOGRAM ANALYZER - Qt/C++ Port to JavaScript
+// SONOGRAM ANALYZER - Qt/C++'den JavaScript'e taşıma
 // Based on dli/analyzers/sonogram.cpp
 // ============================================
 const SonogramAnalyzer = {
@@ -6971,7 +6971,7 @@ const SonogramAnalyzer = {
 };
 
 // ============================================
-// RAINBOW DASH ANALYZER - Fun animated analyzer
+// RAINBOW DASH ANALYZER - Eğlenceli animasyonlu analyzer
 // ============================================
 const RainbowDashAnalyzer = {
     COLUMN_WIDTH: 6,
@@ -7048,7 +7048,7 @@ const RainbowDashAnalyzer = {
             ctx.roundRect(x, y, this.COLUMN_WIDTH, barH, [radius, radius, 0, 0]);
             ctx.fill();
 
-            // Glow effect
+            // Parlama efekti
             if (VisualizerSettings.glowEnabled && barH > 10) {
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = `hsl(${hue1}, 100%, 50%)`;
@@ -7073,7 +7073,7 @@ const RainbowDashAnalyzer = {
 };
 
 // ============================================
-// NYANALYZER CAT - Fun cat-themed analyzer
+// NYANALYZER CAT - Eğlenceli kedi temalı analyzer
 // ============================================
 const NyanalyzerCatAnalyzer = {
     COLUMN_WIDTH: 5,
@@ -7187,7 +7187,7 @@ const NyanalyzerCatAnalyzer = {
 };
 
 // ============================================
-// NO ANALYZER - Empty display
+// NO ANALYZER - Boş görüntü
 // ============================================
 const NoAnalyzer = {
     canvas: null,
@@ -7209,7 +7209,7 @@ const NoAnalyzer = {
 };
 
 // ============================================
-// ANALYZER CONTAINER - Manages all analyzers
+// ANALYZER CONTAINER - Tüm analyzerları yönetir
 // ============================================
 const AnalyzerContainer = {
     currentAnalyzer: null,
@@ -7231,7 +7231,7 @@ const AnalyzerContainer = {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
 
-        // Initialize all analyzers
+        // Başlat all analyzers
         for (const key in this.analyzers) {
             this.analyzers[key].init(canvas);
         }
@@ -7265,7 +7265,7 @@ const AnalyzerContainer = {
 };
 
 // ============================================
-// VISUALIZER CONTEXT MENU
+// GÖRSELLEŞTİRİCİ BAĞLAM MENÜSÜ
 // ============================================
 function setupVisualizerContextMenu() {
     const canvas = elements.visualizerCanvas;
@@ -7273,26 +7273,26 @@ function setupVisualizerContextMenu() {
 
     if (!canvas || !contextMenu) return;
 
-    // Right-click handler
+    // Sağ tık işleyicisi
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY);
     });
 
-    // Left-click also opens menu (like Qt version)
+    // Sol tık da menüyü açar (Qt sürümü gibi)
     canvas.addEventListener('click', (e) => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY);
     });
 
-    // Hide menu when clicking outside
+    // Dışarı tıklanınca menüyü gizle
     document.addEventListener('click', (e) => {
         if (!contextMenu.contains(e.target) && e.target !== canvas) {
             hideContextMenu();
         }
     });
 
-    // Analyzer type selection
+    // Analyzer türü seçimi
     contextMenu.querySelectorAll('[data-analyzer]').forEach(item => {
         item.addEventListener('click', () => {
             const type = item.dataset.analyzer;
@@ -7301,7 +7301,7 @@ function setupVisualizerContextMenu() {
         });
     });
 
-    // Framerate selection
+    // FPS seçimi
     contextMenu.querySelectorAll('[data-framerate]').forEach(item => {
         item.addEventListener('click', () => {
             const fps = parseInt(item.dataset.framerate);
@@ -7312,7 +7312,7 @@ function setupVisualizerContextMenu() {
         });
     });
 
-    // Psychedelic toggle
+    // Psikedelik aç/kapa
     const psychedelicToggle = document.getElementById('psychedelicToggle');
     if (psychedelicToggle) {
         psychedelicToggle.addEventListener('click', () => {
@@ -7322,7 +7322,7 @@ function setupVisualizerContextMenu() {
         });
     }
 
-    // Visual effects
+    // Görsel efektler
     contextMenu.querySelectorAll('[data-visual]').forEach(item => {
         item.addEventListener('click', () => {
             const effect = item.dataset.visual;
@@ -7336,7 +7336,7 @@ function setupVisualizerContextMenu() {
         });
     });
 
-    // Initial state
+    // Başlangıç durumu
     updateContextMenuState();
 }
 
@@ -7346,13 +7346,13 @@ function showContextMenu(x, y) {
 
     contextMenu.classList.remove('hidden');
 
-    // Position menu
+    // Menüyü konumlandır
     const menuWidth = contextMenu.offsetWidth;
     const menuHeight = contextMenu.offsetHeight;
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
 
-    // Adjust position if menu would go off screen
+    // Menü ekrandan taşacaksa konumu ayarla
     if (x + menuWidth > windowWidth) {
         x = windowWidth - menuWidth - 10;
     }
@@ -7375,7 +7375,7 @@ function updateContextMenuState() {
     const contextMenu = document.getElementById('visualizerContextMenu');
     if (!contextMenu) return;
 
-    // Update analyzer selection
+    // Analyzer seçimini güncelle
     contextMenu.querySelectorAll('[data-analyzer]').forEach(item => {
         if (item.dataset.analyzer === VisualizerSettings.currentAnalyzer) {
             item.classList.add('active');
@@ -7384,7 +7384,7 @@ function updateContextMenuState() {
         }
     });
 
-    // Update framerate selection
+    // FPS seçimini güncelle
     contextMenu.querySelectorAll('[data-framerate]').forEach(item => {
         if (parseInt(item.dataset.framerate) === VisualizerSettings.currentFramerate) {
             item.classList.add('active');
@@ -7393,7 +7393,7 @@ function updateContextMenuState() {
         }
     });
 
-    // Update psychedelic toggle
+    // Psikedelik aç/kapa güncelle
     const psychedelicToggle = document.getElementById('psychedelicToggle');
     if (psychedelicToggle) {
         if (VisualizerSettings.psychedelicEnabled) {
@@ -7403,7 +7403,7 @@ function updateContextMenuState() {
         }
     }
 
-    // Update visual effects
+    // Görsel efektleri güncelle
     contextMenu.querySelectorAll('[data-visual]').forEach(item => {
         const effect = item.dataset.visual;
         let isEnabled = false;
@@ -7422,7 +7422,7 @@ function setupVisualizer() {
     const canvas = elements.visualizerCanvas;
     const ctx = canvas.getContext('2d');
 
-    // Load settings
+    // Ayarları yükle
     VisualizerSettings.load();
 
     // Canvas boyutunu ayarla
@@ -7434,10 +7434,10 @@ function setupVisualizer() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Initialize Analyzer Container
+    // Analyzer Container'ı başlat
     AnalyzerContainer.init(canvas);
 
-    // Setup context menu
+    // Bağlam menüsünü kur
     setupVisualizerContextMenu();
 
     // C++ Audio Engine varsa ona bağlan, yoksa Web Audio API kullan
@@ -7445,7 +7445,7 @@ function setupVisualizer() {
         console.log('🎵 C++ FFT verisi ile Analyzer Container başlatılıyor...');
         drawNativeVisualizer(ctx, canvas);
     } else {
-        // Web Audio API setup (fallback)
+        // Web Audio API kurulumu (fallback)
         try {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioContext.createAnalyser();
@@ -7465,7 +7465,7 @@ function setupVisualizer() {
     }
 }
 
-// C++ Audio Engine FFT verisi ile visualizer
+// C++ Audio Engine FFT verisi ile görselleştirici
 async function drawNativeVisualizer(ctx, canvas) {
     setTimeout(() => drawNativeVisualizer(ctx, canvas), 1000 / VisualizerSettings.currentFramerate);
 
@@ -7493,7 +7493,7 @@ function drawVisualizer(ctx, canvas) {
 
     analyser.getByteFrequencyData(dataArray);
 
-    // Convert Uint8Array to normalized array
+    // Uint8Array'i normalize diziye dönüştür
     const normalizedData = Array.from(dataArray).map(v => v / 255);
 
     // Analyzer Container ile çiz
@@ -7505,7 +7505,7 @@ function drawFallbackVisualizer(ctx, canvas) {
     function animate() {
         setTimeout(animate, 1000 / VisualizerSettings.currentFramerate);
 
-        // Fake spectrum data for animation
+        // Animasyon için sahte spektrum verisi
         const fakeData = state.isPlaying
             ? Array.from({ length: 64 }, (_, i) =>
                 (Math.sin(Date.now() / 200 + i * 0.3) * 0.5 + 0.5) * 0.6)
@@ -7546,7 +7546,7 @@ function startRainbowAnimation() {
         const seekPercent = (elements.seekSlider.value / elements.seekSlider.max) * 100;
         updateRainbowSliderColors(elements.seekSlider, seekPercent);
 
-        // Volume slider - mevcut değeriyle güncelle
+        // Ses Seviyesi slider - mevcut değeriyle güncelle
         const volumePercent = elements.volumeSlider.value;
         updateRainbowSliderColors(elements.volumeSlider, volumePercent);
 
@@ -7612,12 +7612,12 @@ function updateRainbowSliderColors(slider, percent) {
 }
 
 // ============================================
-// 32-BAND EQUALIZER CONTROLLER
-// Professional Audio EQ System
+// 32-BANT EQUALIZER DENETLEYİCİSİ
+// Profesyonel Audio EQ Sistemi
 // ============================================
 
 const EQController = {
-    // 32 band frequencies (20Hz - 20kHz logarithmic)
+    // 32 bant frekansları (20Hz - 20kHz logaritmik)
     frequencies: [
         20, 25, 31, 40, 50, 63, 80, 100,
         125, 160, 200, 250, 315, 400, 500, 630,
@@ -7625,17 +7625,17 @@ const EQController = {
         5000, 6300, 8000, 10000, 12500, 16000, 18000, 20000
     ],
 
-    // Current band values (dB)
+    // Mevcut bant değerleri (dB)
     bands: new Array(32).fill(0),
 
-    // Settings
+    // Ayarlar
     enabled: true,
     autoGain: true,
     preamp: 0,
     masterVolume: 100,
     bassBoost: 0,
 
-    // UI Elements
+    // UI Elemanları
     elements: {
         modal: null,
         bandsContainer: null,
@@ -7756,18 +7756,18 @@ const EQController = {
     // Custom presets (localStorage'dan yüklenir)
     customPresets: {},
 
-    // Current preset tracking
+    // Mevcut preset takibi
     currentPreset: 'flat',
 
-    // Legacy alias for backward compatibility
+    // Geriye uyumluluk için eski alias
     get presets() {
         return { ...this.factoryPresets, ...this.customPresets };
     },
 
-    // Initialize EQ controller
+    // EQ denetleyicisini başlat
     init() {
         this.cacheElements();
-        this.loadCustomPresets(); // Load custom presets first
+        this.loadCustomPresets(); // Yükle custom presets first
         this.createBandSliders();
         this.populatePresetSelect(); // Populate dropdown
         this.setupEventListeners();
@@ -7777,7 +7777,7 @@ const EQController = {
         console.log('🎚️ EQ Controller initialized');
     },
 
-    // Cache DOM elements
+    // DOM elemanlarını önbellekle
     cacheElements() {
         this.elements.modal = document.getElementById('eqModal');
         this.elements.bandsContainer = document.getElementById('eqBands');
@@ -7793,7 +7793,7 @@ const EQController = {
         this.elements.bassKnobValue = document.getElementById('bassBoostValue');
         this.elements.eqButton = document.querySelector('.eq-btn-player');
 
-        // Preset manager elements
+        // Preset yöneticisi elemanları
         this.elements.savePresetModal = document.getElementById('savePresetModal');
         this.elements.presetManagerModal = document.getElementById('presetManagerModal');
         this.elements.presetNameInput = document.getElementById('presetName');
@@ -7802,7 +7802,7 @@ const EQController = {
         this.elements.customPresetList = document.getElementById('customPresetList');
     },
 
-    // Load custom presets from localStorage
+    // Özel presetleri localStorage'dan yükle
     loadCustomPresets() {
         try {
             const saved = localStorage.getItem('aurivo_custom_presets');
@@ -7816,7 +7816,7 @@ const EQController = {
         }
     },
 
-    // Save custom presets to localStorage
+    // Özel presetleri localStorage'a kaydet
     saveCustomPresets() {
         try {
             localStorage.setItem('aurivo_custom_presets', JSON.stringify(this.customPresets));
@@ -7825,13 +7825,13 @@ const EQController = {
         }
     },
 
-    // Populate preset select dropdown
+    // Preset seçim açılır listesini doldur
     populatePresetSelect() {
         if (!this.elements.presetSelect) return;
 
         this.elements.presetSelect.innerHTML = '';
 
-        // Factory presets group
+        // Fabrika preset grubu
         const factoryGroup = document.createElement('optgroup');
         factoryGroup.label = '🏭 Fabrika Presetleri';
 
@@ -7845,7 +7845,7 @@ const EQController = {
 
         this.elements.presetSelect.appendChild(factoryGroup);
 
-        // Custom presets group (if any)
+        // Özel presetler group (if any)
         const customKeys = Object.keys(this.customPresets);
         if (customKeys.length > 0) {
             const customGroup = document.createElement('optgroup');
@@ -7864,13 +7864,13 @@ const EQController = {
             this.elements.presetSelect.appendChild(customGroup);
         }
 
-        // Set current selection
+        // Mevcut seçimi ayarla
         if (this.currentPreset) {
             this.elements.presetSelect.value = this.currentPreset;
         }
     },
 
-    // Create 32 band sliders
+    // 32 bant slider'larını oluştur
     createBandSliders() {
         if (!this.elements.bandsContainer) return;
 
@@ -7882,7 +7882,7 @@ const EQController = {
             band.className = 'eq-band';
             band.dataset.index = index;
 
-            // Value display
+            // Değer gösterimi
             const valueDiv = document.createElement('div');
             valueDiv.className = 'eq-band-value';
             valueDiv.textContent = '0';
@@ -7897,7 +7897,7 @@ const EQController = {
             slider.value = this.bands[index];
             slider.dataset.index = index;
 
-            // Frequency label
+            // Frekans etiketi
             const freqLabel = document.createElement('div');
             freqLabel.className = 'eq-band-freq';
             freqLabel.textContent = this.formatFrequency(freq);
@@ -7911,7 +7911,7 @@ const EQController = {
         });
     },
 
-    // Format frequency for display
+    // Görüntü için frekansı biçimlendir
     formatFrequency(freq) {
         if (freq >= 1000) {
             return (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k';
@@ -7919,7 +7919,7 @@ const EQController = {
         return freq.toString();
     },
 
-    // Setup event listeners
+    // Event listener'ları kur
     setupEventListeners() {
         // EQ button to open Sound Effects window
         if (this.elements.eqButton) {
@@ -7935,14 +7935,14 @@ const EQController = {
             });
         }
 
-        // Band sliders
+        // Bant slider'ları
         this.elements.sliders.forEach(({ slider, valueDiv, band }, index) => {
             slider.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
                 this.setBand(index, value);
                 valueDiv.textContent = value > 0 ? `+${value}` : value;
 
-                // Update band class
+                // Güncelle band class
                 band.classList.remove('positive', 'negative');
                 if (value > 0) band.classList.add('positive');
                 if (value < 0) band.classList.add('negative');
@@ -7951,7 +7951,7 @@ const EQController = {
             slider.addEventListener('mouseenter', () => band.classList.add('active'));
             slider.addEventListener('mouseleave', () => band.classList.remove('active'));
 
-            // Double click to reset
+            // Çift tık ile sıfırla
             slider.addEventListener('dblclick', () => {
                 slider.value = 0;
                 this.setBand(index, 0);
@@ -7960,7 +7960,7 @@ const EQController = {
             });
         });
 
-        // Preamp slider
+        // Preamp slider'ı
         if (this.elements.preampSlider) {
             this.elements.preampSlider.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
@@ -7972,7 +7972,7 @@ const EQController = {
             });
         }
 
-        // Master volume slider
+        // Master volume slider'ı
         if (this.elements.volumeSlider) {
             this.elements.volumeSlider.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
@@ -7984,14 +7984,14 @@ const EQController = {
             });
         }
 
-        // Preset select
+        // Preset seçimi
         if (this.elements.presetSelect) {
             this.elements.presetSelect.addEventListener('change', (e) => {
                 this.applyPreset(e.target.value);
             });
         }
 
-        // Enable toggle
+        // Etkinleştirme aç/kapa
         if (this.elements.enableToggle) {
             this.elements.enableToggle.addEventListener('change', (e) => {
                 this.enabled = e.target.checked;
@@ -7999,7 +7999,7 @@ const EQController = {
             });
         }
 
-        // Auto-gain toggle
+        // Auto-gain aç/kapa
         if (this.elements.autoGainToggle) {
             this.elements.autoGainToggle.addEventListener('change', (e) => {
                 this.autoGain = e.target.checked;
@@ -8007,37 +8007,37 @@ const EQController = {
             });
         }
 
-        // Reset button
+        // Sıfırla butonu
         const resetBtn = document.getElementById('resetEQBtn');
         if (resetBtn) {
             resetBtn.addEventListener('click', () => this.resetAll());
         }
 
-        // Save preset button (footer)
+        // Preset kaydet butonu (alt kısım)
         const savePresetBtn = document.getElementById('eqSavePreset');
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.openSavePresetModal());
         }
 
-        // Manage presets button
+        // Presetleri yönet butonu
         const managePresetsBtn = document.getElementById('eqManagePresets');
         if (managePresetsBtn) {
             managePresetsBtn.addEventListener('click', () => this.openPresetManager());
         }
 
-        // Close button
+        // Kapat butonu
         const closeBtn = document.getElementById('closeEQ');
         if (closeBtn) {
             closeBtn.addEventListener('click', () => this.closeModal());
         }
 
-        // Close button (footer)
+        // Kapat butonu (footer)
         const closeFooterBtn = document.getElementById('eqClose');
         if (closeFooterBtn) {
             closeFooterBtn.addEventListener('click', () => this.closeModal());
         }
 
-        // Close on backdrop click
+        // Arka plana tıklayınca kapat
         if (this.elements.modal) {
             this.elements.modal.addEventListener('click', (e) => {
                 if (e.target === this.elements.modal) {
@@ -8046,7 +8046,7 @@ const EQController = {
             });
         }
 
-        // Keyboard shortcuts
+        // Klavye kısayolları
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (this.elements.savePresetModal?.classList.contains('active')) {
@@ -8064,9 +8064,9 @@ const EQController = {
         });
     },
 
-    // Setup preset manager event listeners
+    // Preset yöneticisi event listener'larını kur
     setupPresetManagerListeners() {
-        // Save preset modal
+        // Preset kaydet modalı
         const closeSavePreset = document.getElementById('closeSavePreset');
         if (closeSavePreset) {
             closeSavePreset.addEventListener('click', () => this.closeSavePresetModal());
@@ -8082,7 +8082,7 @@ const EQController = {
             confirmSavePreset.addEventListener('click', () => this.saveCustomPreset());
         }
 
-        // Preset manager modal
+        // Preset yöneticisi modalı
         const closePresetManager = document.getElementById('closePresetManager');
         if (closePresetManager) {
             closePresetManager.addEventListener('click', () => this.closePresetManager());
@@ -8093,7 +8093,7 @@ const EQController = {
             closePresetManagerBtn.addEventListener('click', () => this.closePresetManager());
         }
 
-        // Tab switching
+        // Sekme değiştirme
         document.querySelectorAll('.preset-tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
                 const targetTab = e.target.dataset.tab;
@@ -8101,7 +8101,7 @@ const EQController = {
             });
         });
 
-        // Export/Import buttons
+        // Dışa aktar/İçe aktar butonları
         const exportBtn = document.getElementById('exportPresets');
         if (exportBtn) {
             exportBtn.addEventListener('click', () => this.exportPresets());
@@ -8117,7 +8117,7 @@ const EQController = {
             importFile.addEventListener('change', (e) => this.importPresets(e));
         }
 
-        // Modal backdrop clicks
+        // Modal arka plan tıklamaları
         if (this.elements.savePresetModal) {
             this.elements.savePresetModal.addEventListener('click', (e) => {
                 if (e.target === this.elements.savePresetModal) {
@@ -8135,7 +8135,7 @@ const EQController = {
         }
     },
 
-    // Initialize knobs (bass boost, etc.)
+    // Knobları başlat (bass boost, etc.)
     initKnobs() {
         if (!this.elements.bassKnobCanvas) {
             console.log('Bass knob canvas bulunamadı');
@@ -8154,10 +8154,10 @@ const EQController = {
             return;
         }
 
-        // Draw initial state
+        // Başlangıç durumunu çiz
         this.drawKnob(ctx, canvas, this.bassBoost / 100);
 
-        // Knob interaction
+        // Knob etkileşimi
         let isDragging = false;
         let startY = 0;
         let startValue = 0;
@@ -8189,7 +8189,7 @@ const EQController = {
             }
         });
 
-        // Scroll to adjust
+        // Ayarlamak için kaydır
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             const delta = e.deltaY > 0 ? -2 : 2;
@@ -8203,7 +8203,7 @@ const EQController = {
         });
     },
 
-    // Draw rotary knob
+    // Döner knob çiz
     drawKnob(ctx, canvas, value) {
         const size = canvas.width;
         const center = size / 2;
@@ -8212,7 +8212,7 @@ const EQController = {
         // Clear
         ctx.clearRect(0, 0, size, size);
 
-        // Background ring
+        // Arka plan halkası
         ctx.beginPath();
         ctx.arc(center, center, radius + 8, 0.75 * Math.PI, 2.25 * Math.PI);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
@@ -8220,7 +8220,7 @@ const EQController = {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Value arc
+        // Değer yayı
         const startAngle = 0.75 * Math.PI;
         const endAngle = startAngle + (1.5 * Math.PI * value);
 
@@ -8236,7 +8236,7 @@ const EQController = {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Knob body
+        // Knob gövdesi
         const knobGradient = ctx.createRadialGradient(
             center - 5, center - 5, 0,
             center, center, radius
@@ -8250,14 +8250,14 @@ const EQController = {
         ctx.fillStyle = knobGradient;
         ctx.fill();
 
-        // Knob border
+        // Knob kenarlığı
         ctx.beginPath();
         ctx.arc(center, center, radius, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Indicator line
+        // Gösterge çizgisi
         const angle = startAngle + (1.5 * Math.PI * value);
         const lineStart = radius * 0.4;
         const lineEnd = radius * 0.8;
@@ -8276,7 +8276,7 @@ const EQController = {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Glow effect
+        // Parlama efekti
         ctx.shadowColor = '#00d9ff';
         ctx.shadowBlur = 10;
         ctx.beginPath();
@@ -8290,11 +8290,11 @@ const EQController = {
         ctx.shadowBlur = 0;
     },
 
-    // Set individual band
+    // Bireysel bandı ayarla
     setBand(index, value) {
         this.bands[index] = value;
 
-        // Call native audio if available
+        // Native audio varsa çağır
         if (window.audioAPI?.eq?.setBand) {
             try {
                 window.audioAPI.eq.setBand(index, value);
@@ -8304,7 +8304,7 @@ const EQController = {
         }
     },
 
-    // Set preamp
+    // Preamp'ı ayarla
     setPreamp(value) {
         this.preamp = value;
         if (window.audioAPI?.preamp?.set) {
@@ -8316,7 +8316,7 @@ const EQController = {
         }
     },
 
-    // Set master volume
+    // Master volume'u ayarla
     setMasterVolume(value) {
         this.masterVolume = value;
         if (window.audioAPI?.setMasterVolume) {
@@ -8328,7 +8328,7 @@ const EQController = {
         }
     },
 
-    // Set bass boost
+    // Bass boost'u ayarla
     setBassBoost(value) {
         this.bassBoost = value;
         if (window.audioAPI?.bass?.setBoost) {
@@ -8340,12 +8340,12 @@ const EQController = {
         }
     },
 
-    // Apply preset
+    // Preset uygula
     applyPreset(presetKey) {
         const preset = this.presets[presetKey];
         if (!preset) return;
 
-        // Apply band values
+        // Band değerlerini uygula
         preset.bands.forEach((value, index) => {
             this.bands[index] = value;
 
@@ -8362,7 +8362,7 @@ const EQController = {
             this.setBand(index, value);
         });
 
-        // Apply bass boost
+        // Bass boost uygula
         this.setBassBoost(preset.bassBoost);
         if (this.elements.bassKnobCanvas) {
             const ctx = this.elements.bassKnobCanvas.getContext('2d');
@@ -8374,9 +8374,9 @@ const EQController = {
         console.log(`🎵 Applied preset: ${preset.name}`);
     },
 
-    // Reset all to flat
+    // Hepsini düz yap (flat)
     resetAll() {
-        // Reset bands
+        // Bandları sıfırla
         this.bands = new Array(32).fill(0);
         this.elements.sliders.forEach(({ slider, valueDiv, band }) => {
             slider.value = 0;
@@ -8384,7 +8384,7 @@ const EQController = {
             band.classList.remove('positive', 'negative');
         });
 
-        // Reset sliders
+        // Sliderları sıfırla
         if (this.elements.preampSlider) {
             this.elements.preampSlider.value = 0;
             document.getElementById('preampValue').textContent = '0 dB';
@@ -8395,7 +8395,7 @@ const EQController = {
             document.getElementById('masterVolumeValue').textContent = '100%';
         }
 
-        // Reset bass
+        // Bass'ı sıfırla
         this.bassBoost = 0;
         if (this.elements.bassKnobCanvas) {
             const ctx = this.elements.bassKnobCanvas.getContext('2d');
@@ -8403,12 +8403,12 @@ const EQController = {
         }
         document.getElementById('bassBoostValue').textContent = '0%';
 
-        // Reset preset select
+        // Preset seçimini sıfırla
         if (this.elements.presetSelect) {
             this.elements.presetSelect.value = 'flat';
         }
 
-        // Apply to native
+        // Native'a uygula
         this.bands.forEach((v, i) => this.setBand(i, 0));
         this.setPreamp(0);
         this.setMasterVolume(100);
@@ -8417,7 +8417,7 @@ const EQController = {
         console.log('🎚️ EQ reset to flat');
     },
 
-    // Update EQ enabled state
+    // EQ etkin durumunu güncelle
     updateEQState() {
         if (window.audioAPI?.eq?.setEnabled) {
             try {
@@ -8432,7 +8432,7 @@ const EQController = {
         }
     },
 
-    // Update auto-gain state
+    // Auto-gain durumunu güncelle
     updateAutoGain() {
         if (window.audioAPI?.setAutoGain) {
             try {
@@ -8443,7 +8443,7 @@ const EQController = {
         }
     },
 
-    // Toggle modal
+    // Modal aç/kapa
     toggleModal() {
         if (this.elements.modal?.classList.contains('active')) {
             this.closeModal();
@@ -8452,12 +8452,12 @@ const EQController = {
         }
     },
 
-    // Open modal
+    // Modal aç
     openModal() {
         if (this.elements.modal) {
             this.elements.modal.classList.remove('hidden');
             this.elements.modal.classList.add('active');
-            // Initialize knob with current value
+            // Başlat knob with current value
             if (this.elements.bassKnobCanvas) {
                 const ctx = this.elements.bassKnobCanvas.getContext('2d');
                 this.drawKnob(ctx, this.elements.bassKnobCanvas, this.bassBoost / 100);
@@ -8465,7 +8465,7 @@ const EQController = {
         }
     },
 
-    // Close modal
+    // Modal kapat
     closeModal() {
         if (this.elements.modal) {
             this.elements.modal.classList.remove('active');
@@ -8473,7 +8473,7 @@ const EQController = {
         }
     },
 
-    // Save settings to localStorage
+    // Ayarları localStorage'a kaydet
     saveSettings() {
         const settings = {
             bands: this.bands,
@@ -8495,7 +8495,7 @@ const EQController = {
         }
     },
 
-    // Load settings from localStorage
+    // Ayarları yükle from localStorage
     loadSettings() {
         try {
             const saved = localStorage.getItem('aurivo_eq_settings');
@@ -8503,7 +8503,7 @@ const EQController = {
 
             const settings = JSON.parse(saved);
 
-            // Apply bands
+            // Uygula bands
             if (settings.bands) {
                 settings.bands.forEach((value, index) => {
                     this.bands[index] = value;
@@ -8521,7 +8521,7 @@ const EQController = {
                 });
             }
 
-            // Apply other settings
+            // Uygula other settings
             if (settings.preamp !== undefined) {
                 this.preamp = settings.preamp;
                 this.setPreamp(settings.preamp);
@@ -8568,7 +8568,7 @@ const EQController = {
         }
     },
 
-    // Update level meters (call from audio loop)
+    // Seviye metrelerini güncelle (call from audio loop)
     updateLevels(leftLevel, rightLevel) {
         const bars = this.elements.levelBars;
         if (bars.length >= 2) {
@@ -8576,7 +8576,7 @@ const EQController = {
             bars[1].style.setProperty('--level', `${rightLevel * 100}%`);
         }
 
-        // Check clipping
+        // Clipping kontrolü
         if (this.elements.clippingLed) {
             const isClipping = leftLevel > 0.95 || rightLevel > 0.95;
             this.elements.clippingLed.classList.toggle('active', isClipping);
@@ -8584,17 +8584,17 @@ const EQController = {
     },
 
     // ============================================
-    // PRESET MANAGER FUNCTIONS
+    // PRESET YÖNETİCİSİ FONKSİYONLARI
     // ============================================
 
-    // Open save preset modal
+    // Preset kaydet modalını aç
     openSavePresetModal() {
         if (!this.elements.savePresetModal) return;
 
-        // Update preview
+        // Önizlemeyi güncelle
         this.updatePresetPreview();
 
-        // Clear input fields
+        // Girdi alanlarını temizle
         if (this.elements.presetNameInput) {
             this.elements.presetNameInput.value = '';
             this.elements.presetNameInput.focus();
@@ -8606,14 +8606,14 @@ const EQController = {
         this.elements.savePresetModal.classList.add('active');
     },
 
-    // Close save preset modal
+    // Preset kaydet modalını kapat
     closeSavePresetModal() {
         if (this.elements.savePresetModal) {
             this.elements.savePresetModal.classList.remove('active');
         }
     },
 
-    // Update preset preview
+    // Preset önizlemesini güncelle
     updatePresetPreview() {
         // Bass boost value
         const bassPreview = document.getElementById('previewBassBoost');
@@ -8628,7 +8628,7 @@ const EQController = {
             preampPreview.textContent = (val > 0 ? '+' : '') + val + ' dB';
         }
 
-        // Active bands count
+        // Aktif band sayısı
         const activeBandsPreview = document.getElementById('previewActiveBands');
         if (activeBandsPreview) {
             const activeBands = this.bands.filter(b => b !== 0).length;
@@ -8639,7 +8639,7 @@ const EQController = {
         this.drawMiniEqPreview();
     },
 
-    // Draw mini EQ preview
+    // Mini EQ önizlemesini çiz
     drawMiniEqPreview() {
         const container = document.getElementById('miniEqPreview');
         if (!container) return;
@@ -8668,7 +8668,7 @@ const EQController = {
         });
     },
 
-    // Save custom preset
+    // Özel preset kaydet
     saveCustomPreset() {
         const name = this.elements.presetNameInput?.value.trim();
         if (!name) {
@@ -8677,10 +8677,10 @@ const EQController = {
             return;
         }
 
-        // Generate unique key
+        // Benzersiz anahtar üret
         const key = 'custom_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
 
-        // Create preset object
+        // Preset nesnesi oluştur
         const preset = {
             name: name,
             description: this.elements.presetDescInput?.value.trim() || '',
@@ -8691,55 +8691,55 @@ const EQController = {
             isCustom: true
         };
 
-        // Save to custom presets
+        // Özel presetlere kaydet
         this.customPresets[key] = preset;
         this.saveCustomPresets();
 
-        // Update dropdown
+        // Açılır listeyi güncelle
         this.populatePresetSelect();
 
-        // Select the new preset
+        // Yeni preset'i seç
         if (this.elements.presetSelect) {
             this.elements.presetSelect.value = key;
         }
         this.currentPreset = key;
 
-        // Close modal
+        // Modal kapat
         this.closeSavePresetModal();
 
         showNotification(`"${name}" preset kaydedildi`, 'success');
         console.log(`💾 Custom preset saved: ${name}`);
     },
 
-    // Open preset manager
+    // Preset yöneticisini aç
     openPresetManager() {
         if (!this.elements.presetManagerModal) return;
 
-        // Populate lists
+        // Listeleri doldur
         this.populateFactoryPresetList();
         this.populateCustomPresetList();
 
-        // Switch to factory tab by default
+        // Varsayılan olarak fabrika sekmesine geç
         this.switchPresetTab('factory');
 
         this.elements.presetManagerModal.classList.add('active');
     },
 
-    // Close preset manager
+    // Preset yöneticisini kapat
     closePresetManager() {
         if (this.elements.presetManagerModal) {
             this.elements.presetManagerModal.classList.remove('active');
         }
     },
 
-    // Switch preset tab
+    // Preset sekmesini değiştir
     switchPresetTab(tab) {
-        // Update tab buttons
+        // Sekme butonlarını güncelle
         document.querySelectorAll('.preset-tab').forEach(t => {
             t.classList.toggle('active', t.dataset.tab === tab);
         });
 
-        // Update lists
+        // Listeleri güncelle
         const factoryList = document.getElementById('factoryPresetList');
         const customList = document.getElementById('customPresetList');
 
@@ -8747,7 +8747,7 @@ const EQController = {
         if (customList) customList.classList.toggle('hidden', tab !== 'custom');
     },
 
-    // Populate factory preset list
+    // Fabrika preset listesini doldur
     populateFactoryPresetList() {
         const container = this.elements.factoryPresetList;
         if (!container) return;
@@ -8760,7 +8760,7 @@ const EQController = {
         });
     },
 
-    // Populate custom preset list
+    // Özel preset listesini doldur
     populateCustomPresetList() {
         const container = this.elements.customPresetList;
         if (!container) return;
@@ -8768,7 +8768,7 @@ const EQController = {
         const customKeys = Object.keys(this.customPresets);
         const emptyState = document.getElementById('noCustomPresets');
 
-        // Clear existing items (except empty state)
+        // Mevcut öğeleri temizle (except empty state)
         container.querySelectorAll('.preset-list-item').forEach(el => el.remove());
 
         if (customKeys.length === 0) {
@@ -8785,13 +8785,13 @@ const EQController = {
         });
     },
 
-    // Create preset list item
+    // Preset liste öğesi oluştur
     createPresetListItem(key, preset, isCustom) {
         const item = document.createElement('div');
         item.className = 'preset-list-item';
         item.dataset.key = key;
 
-        // Calculate stats
+        // İstatistikleri hesapla
         const activeBands = preset.bands.filter(b => b !== 0).length;
         const avgGain = preset.bands.reduce((a, b) => a + b, 0) / preset.bands.length;
 
@@ -8826,7 +8826,7 @@ const EQController = {
             </div>
         `;
 
-        // Event listeners
+        // Event listener'lar
         const applyBtn = item.querySelector('.apply-btn');
         if (applyBtn) {
             applyBtn.addEventListener('click', () => {
@@ -8854,18 +8854,18 @@ const EQController = {
         return item;
     },
 
-    // Edit custom preset
+    // Özel preset düzenle
     editCustomPreset(key) {
         const preset = this.customPresets[key];
         if (!preset) return;
 
-        // Apply preset values to EQ
+        // Preset uygula values to EQ
         this.applyPreset(key);
 
-        // Open save modal with current values
+        // Mevcut değerlerle kaydet modalını aç
         this.openSavePresetModal();
 
-        // Pre-fill name and description
+        // Ad ve açıklamayı önceden doldur
         if (this.elements.presetNameInput) {
             this.elements.presetNameInput.value = preset.name;
         }
@@ -8873,24 +8873,24 @@ const EQController = {
             this.elements.presetDescInput.value = preset.description || '';
         }
 
-        // Delete old preset when saving
+        // Kaydederken eski preset'i sil
         const oldConfirmHandler = document.getElementById('confirmSavePreset');
         if (oldConfirmHandler) {
             const newHandler = oldConfirmHandler.cloneNode(true);
             oldConfirmHandler.parentNode.replaceChild(newHandler, oldConfirmHandler);
 
             newHandler.addEventListener('click', () => {
-                // Delete old preset first
+                // Önce eski preset'i sil
                 delete this.customPresets[key];
-                // Then save as new
+                // Sonra yeni olarak kaydet
                 this.saveCustomPreset();
-                // Re-populate list
+                // Listeyi yeniden doldur
                 this.populateCustomPresetList();
             });
         }
     },
 
-    // Delete custom preset
+    // Özel preset sil
     deleteCustomPreset(key) {
         const preset = this.customPresets[key];
         if (!preset) return;
@@ -8899,7 +8899,7 @@ const EQController = {
             try {
                 if (window.i18n?.t) return await window.i18n.t('confirm.deletePreset', { name: preset.name });
             } catch {
-                // ignore
+                // yoksay
             }
             return `"${preset.name}" presetini silmek istediğinize emin misiniz?`;
         };
@@ -8911,7 +8911,7 @@ const EQController = {
             this.populatePresetSelect();
             this.populateCustomPresetList();
 
-            // If this was the current preset, switch to flat
+            // Bu mevcut preset ise, flat'a geç
             if (this.currentPreset === key) {
                 this.currentPreset = 'flat';
                 if (this.elements.presetSelect) {
@@ -8923,7 +8923,7 @@ const EQController = {
                 try {
                     if (window.i18n?.t) return await window.i18n.t('notifications.presetDeleted', { name: preset.name });
                 } catch {
-                    // ignore
+                    // yoksay
                 }
                 return `"${preset.name}" silindi`;
             };
@@ -8931,7 +8931,7 @@ const EQController = {
         });
     },
 
-    // Export presets to JSON file
+    // Presetleri JSON dosyasına dışa aktar
     exportPresets() {
         const exportData = {
             version: '1.0',
@@ -8953,7 +8953,7 @@ const EQController = {
         showNotification('Presetler dışa aktarıldı', 'success');
     },
 
-    // Import presets from JSON file
+    // Presetleri JSON dosyasından içe aktar
     importPresets(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -8967,12 +8967,12 @@ const EQController = {
                     throw new Error('Geçersiz preset dosyası');
                 }
 
-                // Merge with existing presets
+                // Mevcut presetlerle birleştir
                 let importedCount = 0;
                 Object.entries(data.customPresets).forEach(([key, preset]) => {
-                    // Validate preset structure
+                    // Preset yapısını doğrula
                     if (preset.name && Array.isArray(preset.bands) && preset.bands.length === 32) {
-                        // Generate new key to avoid conflicts
+                        // Çakışmaları önlemek için yeni anahtar üret
                         const newKey = 'custom_' + preset.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
                         this.customPresets[newKey] = {
                             ...preset,
@@ -8999,18 +8999,18 @@ const EQController = {
 
         reader.readAsText(file);
 
-        // Reset file input
+        // Dosya girişini sıfırla
         event.target.value = '';
     }
 };
 
 // ============================================
-// AGC CONTROLLER - Automatic Gain Control
-// Advanced Level Management & Limiter
+// AGC DENETLEYİCİ - Otomatik Gain Kontrolü
+// Gelişmiş Seviye Yönetimi ve Limiter
 // ============================================
 
 const AGCController = {
-    // Configuration
+    // Yapılandırma
     config: {
         enabled: true,
         checkInterval: 100,          // 100ms interval for level checking
@@ -9022,7 +9022,7 @@ const AGCController = {
         limiterThreshold: 0.98,      // Hard limiter at 98%
     },
 
-    // State
+    // Durum
     state: {
         isRunning: false,
         intervalId: null,
@@ -9032,7 +9032,7 @@ const AGCController = {
         sessionClippingEvents: 0,
     },
 
-    // UI Elements
+    // UI Elemanları
     elements: {
         toggle: null,
         statusIndicator: null,
@@ -9041,7 +9041,7 @@ const AGCController = {
         clippingLed: null,
     },
 
-    // Initialize AGC Controller
+    // AGC denetleyicisini başlat
     init() {
         this.cacheElements();
         this.setupEventListeners();
@@ -9054,7 +9054,7 @@ const AGCController = {
         console.log('🎚️ AGC Controller initialized');
     },
 
-    // Cache DOM elements
+    // DOM elemanlarını önbellekle
     cacheElements() {
         this.elements.toggle = document.getElementById('autoGainToggle');
         this.elements.statusIndicator = document.getElementById('agcStatusIndicator');
@@ -9063,9 +9063,9 @@ const AGCController = {
         this.elements.clippingLed = document.getElementById('clipLed');
     },
 
-    // Setup event listeners
+    // Event listener'ları kur
     setupEventListeners() {
-        // Toggle listener is handled in EQController
+        // Aç/Kapat listener is handled in EQController
         // We just need to listen for changes
         if (this.elements.toggle) {
             this.elements.toggle.addEventListener('change', (e) => {
@@ -9074,20 +9074,20 @@ const AGCController = {
         }
     },
 
-    // Start AGC monitoring
+    // AGC izlemeyi başlat
     start() {
         if (this.state.isRunning) return;
 
         this.state.isRunning = true;
         this.state.intervalId = setInterval(() => this.checkLevels(), this.config.checkInterval);
 
-        // Send AGC parameters to native
+        // AGC parametrelerini native'a gönder
         this.updateNativeParameters();
 
         console.log('🔊 AGC monitoring started');
     },
 
-    // Stop AGC monitoring
+    // AGC izlemeyi durdur
     stop() {
         if (!this.state.isRunning) return;
 
@@ -9100,11 +9100,11 @@ const AGCController = {
         console.log('🔇 AGC monitoring stopped');
     },
 
-    // Enable/disable AGC
+    // AGC etkinleştir/kapat
     setEnabled(enabled) {
         this.config.enabled = enabled;
 
-        // Update native AGC
+        // Native AGC'yi güncelle
         if (window.audioAPI?.agc?.setEnabled) {
             try {
                 window.audioAPI.agc.setEnabled(enabled);
@@ -9119,16 +9119,16 @@ const AGCController = {
             this.stop();
         }
 
-        // Save setting
+        // Kaydet setting
         this.saveSettings();
 
-        // Update UI
+        // UI'yi güncelle
         if (this.elements.toggle) {
             this.elements.toggle.checked = enabled;
         }
     },
 
-    // Update native AGC parameters
+    // Native AGC'yi güncelle parameters
     updateNativeParameters() {
         if (!window.audioAPI?.agc?.setParameters) return;
 
@@ -9143,12 +9143,12 @@ const AGCController = {
         }
     },
 
-    // Main level checking function - called every 100ms
+    // Ana seviye kontrol fonksiyonu - called every 100ms
     checkLevels() {
         if (!this.config.enabled) return;
-        if (!state.isPlaying) return; // Only check when playing
+        if (!state.isPlaying) return; // Sadece çalarken kontrol et
 
-        // Get AGC status from native
+        // Native'dan AGC durumunu al
         let agcStatus = null;
         if (window.audioAPI?.agc?.getStatus) {
             try {
@@ -9158,7 +9158,7 @@ const AGCController = {
             }
         }
 
-        // Fallback to basic level checking
+        // Temel seviye kontrolüne fallback
         if (!agcStatus && window.audioAPI?.spectrum?.getChannelLevels) {
             try {
                 const levels = window.audioAPI.spectrum.getChannelLevels();
@@ -9170,13 +9170,13 @@ const AGCController = {
                     clippingCount: 0
                 };
             } catch (e) {
-                return; // Can't check levels
+                return; // Seviyeler kontrol edilemiyor
             }
         }
 
         if (!agcStatus) return;
 
-        // Update UI meters
+        // UI metrelerini güncelle
         this.updateMeters(agcStatus);
 
         // Check for clipping
@@ -9184,23 +9184,23 @@ const AGCController = {
             this.handleClipping(agcStatus);
         }
 
-        // Check for sustained low levels
+        // Süregelen düşük seviye kontrolü
         this.checkLowLevels(agcStatus);
     },
 
-    // Update visual meters
+    // Görsel metreleri güncelle
     updateMeters(status) {
-        // Update level bars in EQ modal
+        // Güncelle level bars in EQ modal
         if (EQController?.elements?.levelBars?.length >= 2) {
             EQController.updateLevels(status.peakLevel, status.peakLevel);
         }
 
-        // Update clipping LED
+        // Clipping LED'ini güncelle
         if (this.elements.clippingLed) {
             this.elements.clippingLed.classList.toggle('active', status.isClipping);
         }
 
-        // Update peak label
+        // Peak etiketini güncelle
         const peakLabel = document.getElementById('peakLabel');
         if (peakLabel) {
             const peakDB = status.peakLevel > 0 ? (20 * Math.log10(status.peakLevel)).toFixed(1) : '-∞';
@@ -9210,11 +9210,11 @@ const AGCController = {
         }
     },
 
-    // Handle clipping events
+    // Clipping olaylarını işle
     handleClipping(status) {
         const now = Date.now();
 
-        // Prevent spam - only warn every 2 seconds
+        // Spam'i önle - sadece 2 saniyede bir uyar
         if (now - this.state.lastClippingWarning < 2000) return;
 
         this.state.lastClippingWarning = now;
@@ -9222,10 +9222,10 @@ const AGCController = {
 
         console.warn(`⚠️ Clipping detected! Peak: ${(status.peakLevel * 100).toFixed(1)}%`);
 
-        // Apply emergency reduction
+        // Acil azaltma uygula
         this.applyEmergencyReduction();
 
-        // Show warning notification
+        // Uyarı bildirimi göster
         showNotification(
             'Ses seviyesi çok yüksek, otomatik azaltma uygulandı',
             'warning',
@@ -9233,11 +9233,11 @@ const AGCController = {
         );
     },
 
-    // Apply emergency gain reduction
+    // Acil gain azaltma uygula
     applyEmergencyReduction() {
         this.state.totalGainReductions++;
 
-        // Try native emergency reduction first
+        // Önce native acil azaltmayı dene
         if (window.audioAPI?.agc?.applyEmergencyReduction) {
             try {
                 window.audioAPI.agc.applyEmergencyReduction();
@@ -9247,14 +9247,14 @@ const AGCController = {
             }
         }
 
-        // JS fallback: reduce all EQ bands by 1dB
+        // JS fallback: tüm EQ bandlarını 1dB azalt
         if (EQController) {
             EQController.bands.forEach((value, index) => {
                 const newValue = Math.max(-15, value - 1);
                 EQController.bands[index] = newValue;
                 EQController.setBand(index, newValue);
 
-                // Update slider
+                // Güncelle slider
                 const sliderData = EQController.elements.sliders[index];
                 if (sliderData) {
                     sliderData.slider.value = newValue;
@@ -9262,7 +9262,7 @@ const AGCController = {
                 }
             });
 
-            // Reduce preamp by 0.5dB
+            // Preamp'ı 0.5dB azalt
             const newPreamp = Math.max(-12, EQController.preamp - 0.5);
             EQController.preamp = newPreamp;
             EQController.setPreamp(newPreamp);
@@ -9277,48 +9277,48 @@ const AGCController = {
         }
     },
 
-    // Check for sustained low levels and suggest preamp increase
+    // Süregelen düşük seviye kontrolü and suggest preamp increase
     checkLowLevels(status) {
         if (status.peakLevel < this.config.lowLevelThreshold) {
-            // Level is low
+            // Seviye düşük
             if (!this.state.lowLevelStartTime) {
                 this.state.lowLevelStartTime = Date.now();
             } else {
                 const lowDuration = Date.now() - this.state.lowLevelStartTime;
 
-                // If low for configured duration, suggest increase
+                // Yapılandırılan süre düşükse, artış öner
                 if (lowDuration >= this.config.lowLevelDuration) {
                     this.suggestPreampIncrease();
-                    this.state.lowLevelStartTime = null; // Reset timer
+                    this.state.lowLevelStartTime = null; // Sıfırla timer
                 }
             }
         } else {
-            // Level is okay, reset timer
+            // Seviye iyi, zamanlayıcıyı sıfırla
             this.state.lowLevelStartTime = null;
         }
     },
 
-    // Suggest preamp increase to user
+    // Kullanıcıya preamp artışı öner
     suggestPreampIncrease() {
-        // Only suggest if preamp is below max
+        // Sadece preamp maksimumun altındaysa öner
         if (EQController && EQController.preamp < 12) {
-            // Check native suggestion
-            let suggestion = 0.5; // Default
+            // Native öneriyi kontrol et
+            let suggestion = 0.5; // Varsayılan
             if (window.audioAPI?.agc?.getPreampSuggestion) {
                 try {
                     suggestion = window.audioAPI.agc.getPreampSuggestion();
                 } catch (e) {
-                    // Use default
+                    // Varsayılanı kullan
                 }
             }
 
             if (suggestion > 0) {
-                // Auto-apply small increase
+                // Küçük artışı otomatik uygula
                 const newPreamp = Math.min(12, EQController.preamp + suggestion);
                 EQController.preamp = newPreamp;
                 EQController.setPreamp(newPreamp);
 
-                // Update UI
+                // UI'yi güncelle
                 if (EQController.elements.preampSlider) {
                     EQController.elements.preampSlider.value = newPreamp;
                     const preampDisplay = document.getElementById('preampValue');
@@ -9332,7 +9332,7 @@ const AGCController = {
         }
     },
 
-    // Get AGC statistics
+    // AGC istatistiklerini al
     getStats() {
         return {
             enabled: this.config.enabled,
@@ -9343,22 +9343,22 @@ const AGCController = {
         };
     },
 
-    // Reset statistics
+    // İstatistikleri sıfırla
     resetStats() {
         this.state.totalGainReductions = 0;
         this.state.sessionClippingEvents = 0;
 
-        // Reset native clipping count
+        // Native clipping sayısını sıfırla
         if (window.audioAPI?.agc?.resetClippingCount) {
             try {
                 window.audioAPI.agc.resetClippingCount();
             } catch (e) {
-                // Ignore
+                // yoksay
             }
         }
     },
 
-    // Save settings
+    // Ayarları kaydet
     saveSettings() {
         try {
             localStorage.setItem('aurivo_agc_settings', JSON.stringify({
@@ -9372,7 +9372,7 @@ const AGCController = {
         }
     },
 
-    // Load settings
+    // Ayarları yükle
     loadSettings() {
         try {
             const saved = localStorage.getItem('aurivo_agc_settings');
@@ -9389,7 +9389,7 @@ const AGCController = {
     }
 };
 
-// Initialize EQ and AGC on DOM ready
+// DOM hazır olduğunda EQ ve AGC'yi başlat
 document.addEventListener('DOMContentLoaded', () => {
     // Slight delay to ensure all elements are ready
     setTimeout(() => {

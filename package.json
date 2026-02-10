@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "AURIVO_DEV=1 ELECTRON_OZONE_PLATFORM_HINT=wayland ELECTRON_ENABLE_WAYLAND=1 OZONE_PLATFORM=wayland electron . --enable-logging",
+    "dev": "npm run dev:win",
     "install:desktop:linux": "bash scripts/install-desktop-linux.sh",
     "gen:icon:transparent": "bash scripts/generate-transparent-icon.sh",
     "gen:win:ico": "node scripts/generate-windows-ico.js",
@@ -18,7 +18,8 @@
     "build:win": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win",
     "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
-    "dist": "npm run build:win"
+    "dist": "npm run build:win",
+    "dev:win": "cmd /c \"chcp 65001>nul && set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
   },
   "author": "Muhammet Dali",
   "homepage": "https://aurivo.app",
@@ -250,3 +251,5 @@
     "node-id3": "^0.2.9"
   }
 }
+
+

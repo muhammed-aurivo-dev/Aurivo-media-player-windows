@@ -9,7 +9,7 @@ function tSync(key, vars, fallback) {
         const v = window.i18n?.tSync?.(key, vars);
         if (typeof v === 'string' && v && v !== key) return v;
     } catch {
-        // ignore
+        // yoksay
     }
     return fallback ?? String(key);
 }
@@ -77,7 +77,7 @@ function computeGroupsForPreset(preset) {
     if (/(^|\s)(pop)(\s|$)/.test(hay)) groups.add('pop');
     if (/(^|\s)(rock|metal|guitar)(\s|$)/.test(hay)) groups.add('rock');
 
-    // V-Shape
+    // V-Şekil
     if (/(v\s*-?\s*shape|vshape)/.test(hay)) groups.add('vshape');
 
     if (groups.size === 0) groups.add('other');
@@ -105,7 +105,7 @@ function updateStatusForList(list) {
 }
 
 function makeBandsFromPoints(points) {
-    // points: [{ i: 0..31, v: -12..12 }]
+    // noktalar: [{ i: 0..31, v: -12..12 }]
     const out = new Array(32).fill(0);
     if (!Array.isArray(points) || points.length === 0) return out;
 
@@ -116,10 +116,10 @@ function makeBandsFromPoints(points) {
 
     if (sorted.length === 0) return out;
 
-    // Fill before first
+    // İlk nokta öncesini doldur
     for (let i = 0; i <= sorted[0].i; i++) out[i] = sorted[0].v;
 
-    // Linear interpolate between points
+    // Noktalar arasında doğrusal interpolasyon
     for (let p = 0; p < sorted.length - 1; p++) {
         const a = sorted[p];
         const b = sorted[p + 1];
@@ -130,7 +130,7 @@ function makeBandsFromPoints(points) {
         }
     }
 
-    // Fill after last
+    // Son nokta sonrasını doldur
     for (let i = sorted[sorted.length - 1].i; i < 32; i++) out[i] = sorted[sorted.length - 1].v;
 
     return normalizeBands(out);
@@ -177,14 +177,14 @@ function drawMiniCurve(canvas, bands) {
 
     ctx.clearRect(0, 0, w, h);
 
-    // background
+    // arka plan
     const bg = ctx.createLinearGradient(0, 0, w, 0);
     bg.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
     bg.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // rainbow stroke
+    // gökkuşağı çizgisi
     const grad = ctx.createLinearGradient(0, 0, w, 0);
     grad.addColorStop(0.00, '#ff2d2d');
     grad.addColorStop(0.18, '#ff9800');
@@ -213,7 +213,7 @@ function drawMiniCurve(canvas, bands) {
     }
     ctx.stroke();
 
-    // subtle midline
+    // hafif orta çizgi
     ctx.strokeStyle = 'rgba(255,255,255,0.10)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -297,7 +297,7 @@ async function ensureBandsLoaded(filename) {
             state.bandsCache.set(filename, normalizeBands(data.bands));
         }
     } catch {
-        // ignore
+        // yoksay
     } finally {
         state.loadingBands.delete(filename);
     }
@@ -347,7 +347,7 @@ function renderNextPage() {
     if (!state.selected) {
         selectPreset('__flat__');
     } else {
-        // keep selection highlighted
+        // seçimi vurgulu tut
         selectPreset(state.selected);
     }
 
@@ -371,17 +371,17 @@ function focusSelected() {
     const row = rows.find(r => r?.dataset?.filename === sel);
     if (!row) return;
 
-    // Ensure highlight is applied (virtual list can re-render)
+    // Vurgunun uygulandığından emin ol (sanal liste yeniden render edebilir)
     selectPreset(sel);
 
-    // Robust scrolling: scroll the list container (not the window)
+    // Sağlam kaydırma: pencereyi değil liste kapsayıcısını kaydır
     const scrollToCenter = () => {
         const top = row.offsetTop - (list.clientHeight / 2) + (row.offsetHeight / 2);
         const maxTop = Math.max(0, list.scrollHeight - list.clientHeight);
         list.scrollTop = Math.min(maxTop, Math.max(0, top));
     };
 
-    // Wait 1-2 frames for layout after incremental render
+    // Artımlı render sonrası yerleşim için 1-2 frame bekle
     requestAnimationFrame(() => requestAnimationFrame(scrollToCenter));
 }
 
@@ -390,7 +390,7 @@ function ensureSelectedNotFilteredOut() {
     const inFiltered = state.filtered.some(p => p?.filename === state.selected);
     if (inFiltered) return;
 
-    // If the selected preset is hidden due to group filtering, fall back to "all"
+    // Seçili preset grup filtresi nedeniyle gizliyse "tümü"ne dön
     state.selectedGroup = 'all';
     const groupSel = document.getElementById('presetGroup');
     if (groupSel) groupSel.value = 'all';
@@ -459,7 +459,7 @@ async function init() {
         return;
     }
 
-    // Featured presetleri main process'ten al (tek kaynak). Yoksa fallback.
+    // Öne çıkan presetleri ana süreçten al (tek kaynak). Yoksa yedek.
     try {
         const featured = await aurivo.presets.getFeaturedEQPresets?.();
         state.featured = (Array.isArray(featured) && featured.length ? featured : getFeaturedPresetsFallback()).map(tagPreset);
@@ -533,14 +533,14 @@ async function init() {
         try {
             await aurivo.presets.selectEQPreset(filename);
         } catch {
-            // ignore
+            // yoksay
         }
         window.close();
     });
 
-    // default selection
+    // varsayılan seçim
     if (list) {
-        // Hydrate preview for the first visible items quickly
+        // İlk görünen öğelerin önizlemesini hızlıca yükle
         const firstRows = Array.from(list.querySelectorAll('.preset-item')).slice(0, 14);
         for (const row of firstRows) {
             const filename = row.dataset.filename;
@@ -563,11 +563,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     document.title = await window.i18n.t('eqPresets.windowTitle');
                 } catch {
-                    // ignore
+                    // yoksay
                 }
             }
         } catch {
-            // ignore
+            // yoksay
         }
 
         init().catch(() => {

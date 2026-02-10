@@ -1,7 +1,7 @@
 // ============================================
-// AURIVO AUDIO ENGINE - Professional BASS Audio
-// Node.js Native Addon for Electron
-// Version 2.0 - No Clipping, Deep Bass
+// AURIVO AUDIO ENGINE - Profesyonel BASS Ses
+// Electron için Node.js Native Eklentisi
+// Sürüm 2.0 - Clipping Yok, Derin Bass
 // ============================================
 
 #include <napi.h>
@@ -51,7 +51,7 @@ extern "C" {
 }
 
 // ============================================
-// CONSTANTS
+// SABİTLER
 // ============================================
 static const int NUM_EQ_BANDS = 32;
 static const int SAMPLE_RATE = 44100;
@@ -69,7 +69,7 @@ static const std::array<float, NUM_EQ_BANDS> EQ_FREQUENCIES = {
 static const int BASS_BOOST_BANDS = 12;
 
 // ============================================
-// UTILITY FUNCTIONS
+// YARDIMCI FONKSİYONLAR
 // ============================================
 static inline float clampf(float value, float minVal, float maxVal) {
     return std::max(minVal, std::min(value, maxVal));
@@ -85,7 +85,7 @@ static inline float linearTodB(float linear) {
 }
 
 // ============================================
-// COMPRESSOR (BASS_FX)
+// KOMPRESÖR (BASS_FX)
 // ============================================
 static HFX fxCompressor = 0;
 
@@ -102,7 +102,7 @@ struct CompressorParams {
 static CompressorParams g_compressor;
 
 // ============================================
-// LIMITER PARAMETERS
+// LİMİTER PARAMETRELERİ
 // ============================================
 struct LimiterParams {
     float ceiling = -0.3f;      // dB (maksimum çıkış)
@@ -115,7 +115,7 @@ struct LimiterParams {
 static LimiterParams g_limiter;
 
 // ============================================
-// BASS ENHANCER PARAMETERS
+// BASS ENHANCER PARAMETRELERİ
 // ============================================
 struct BassEnhancerParams {
     float frequency = 80.0f;      // Hz (merkez frekans)
@@ -129,7 +129,7 @@ struct BassEnhancerParams {
 static BassEnhancerParams g_bassEnhancer;
 
 // ============================================
-// NOISE GATE PARAMETERS
+// NOISE GATE PARAMETRELERİ
 // ============================================
 struct NoiseGateParams {
     float threshold = -40.0f;   // dB (eşik)
@@ -143,7 +143,7 @@ struct NoiseGateParams {
 static NoiseGateParams g_noiseGate;
 
 // ============================================
-// DE-ESSER PARAMETERS
+// DE-ESSER PARAMETRELERİ
 // ============================================
 struct DeEsserParams {
     float frequency = 7000.0f;  // Hz (sibilant frekansı)
@@ -157,7 +157,7 @@ struct DeEsserParams {
 static DeEsserParams g_deEsser;
 
 // ============================================
-// EXCITER (HARMONIC ENHANCER) PARAMETERS
+// EXCITER (HARMONIC ENHANCER) PARAMETRELERİ
 // ============================================
 struct ExciterParams {
     float amount = 50.0f;       // % (etki miktarı)
@@ -171,7 +171,7 @@ struct ExciterParams {
 static ExciterParams g_exciter;
 
 // ============================================
-// STEREO WIDENER PARAMETERS
+// STEREO WIDENER PARAMETRELERİ
 // ============================================
 struct StereoWidenerParams {
     float width = 100.0f;       // % (0=mono, 100=normal, 200=max)
@@ -185,7 +185,7 @@ struct StereoWidenerParams {
 static StereoWidenerParams g_stereoWidener;
 
 // ============================================
-// ECHO PARAMETERS
+// ECHO PARAMETRELERİ
 // ============================================
 struct EchoParams {
     float delay = 250.0f;       // ms (gecikme süresi)
@@ -216,7 +216,7 @@ struct ConvolutionReverbParams {
 static ConvolutionReverbParams g_convReverb;
 
 // ============================================
-// AUTO GAIN / NORMALIZE PARAMETERS
+// AUTO GAIN / NORMALIZE PARAMETRELERİ
 // ============================================
 struct AutoGainParams {
     float targetLevel = -14.0f;    // dBFS (hedef seviye, -30 ile -3 arası)
@@ -233,9 +233,9 @@ struct AutoGainParams {
 static AutoGainParams g_autoGain;
 
 // ============================================
-// TRUE PEAK LIMITER + METER PARAMETERS
+// TRUE PEAK LIMITER + METER PARAMETRELERİ
 // ============================================
-// Redundant variables removed
+// Gereksiz değişkenler kaldırıldı
 
 struct TruePeakLimiterParams {
     float ceiling = -0.1f;          // dBFS (maksimum çıkış)
@@ -248,7 +248,7 @@ struct TruePeakLimiterParams {
 
 static TruePeakLimiterParams g_truePeakLimiter;
 
-// True Peak Metering
+// True Peak Ölçümü
 struct TruePeakMeter {
     float currentPeakL = -96.0f;    // dBFS (sol kanal) - limiter sonrası
     float currentPeakR = -96.0f;    // dBFS (sağ kanal) - limiter sonrası
@@ -267,11 +267,11 @@ struct TruePeakMeter {
 
 static TruePeakMeter g_truePeakMeter;
 
-// Convolution Reverb FX handles
+// Convolution Reverb FX handle'ları
 static HFX fxConvReverb = 0;
 static HFX fxConvPreDelay = 0;
 
-// IR presets (built-in simulations)
+// IR presetleri (dahili simülasyonlar)
 struct IRPreset {
     const char* name;
     float roomSize;
@@ -308,7 +308,7 @@ struct CrossfeedParams {
 static CrossfeedParams g_crossfeed;
 
 // ============================================
-// BASS MONO PARAMETERS
+// BASS MONO PARAMETRELERİ
 // ============================================
 struct BassMonoParams {
     float cutoff = 120.0f;      // Hz
@@ -320,7 +320,7 @@ struct BassMonoParams {
 static BassMonoParams g_bassMono;
 
 // ============================================
-// TAPE SATURATION PARAMETERS
+// TAPE SATURATION PARAMETRELERİ
 // ============================================
 HDSP g_tapeSatDSP = 0;
 
@@ -358,12 +358,12 @@ static inline float onePoleAlphaTape(float cutoffHz, float sr) {
     return 1.0f - x;
 }
 
-// FORWARD DECLARATIONS
+// İLERİ BİLDİRİMLER
 void CALLBACK TapeSat_DSP(HDSP handle, DWORD channel, void* buffer, DWORD length, void* user);
 void CALLBACK BitDither_DSP(HDSP handle, DWORD channel, void* buffer, DWORD length, void* user);
 
 // ============================================
-// BIT-DEPTH / DITHER PARAMETERS
+// BIT-DEPTH / DITHER PARAMETRELERİ
 // ============================================
 HDSP g_bitDitherDSP = 0;
 
@@ -421,10 +421,10 @@ static inline float quantize(float x, int bits) {
 }
 
 // ============================================
-// DYNAMIC EQ FORWARD DECLARATIONS
+// DYNAMIC EQ İLERİ BİLDİRİMLER
 void UpdateDynamicEQOnDSP();
 
-// DYNAMIC EQ PARAMETERS
+// DYNAMIC EQ PARAMETRELERİ
 // ============================================
 struct DynamicEQParams {
     float frequency = 3500.0f;   // Hz
@@ -439,7 +439,7 @@ struct DynamicEQParams {
 
 static DynamicEQParams g_dynamicEq;
 
-// Crossfeed presets
+// Crossfeed presetleri
 struct CrossfeedPreset {
     const char* name;
     float level;
@@ -458,7 +458,7 @@ static const CrossfeedPreset CROSSFEED_PRESETS[] = {
 
 // Soft clipping fonksiyonu - distortion önleme
 static inline float softClip(float sample) {
-    // Tanh-based soft clipper - smooth transition
+    // Tanh tabanlı soft clipper - yumuşak geçiş
     if (sample > 1.0f) {
         return 1.0f - std::exp(-sample);
     } else if (sample < -1.0f) {
@@ -467,10 +467,10 @@ static inline float softClip(float sample) {
     return sample;
 }
 
-// Redundant callback removed. Crossfeed is now handled integrated in aurivo_dsp.cpp
+// Gereksiz callback kaldırıldı. Crossfeed artık aurivo_dsp.cpp içinde entegre
 
 // ============================================
-// AURIVO AUDIO ENGINE CLASS
+// AURIVO AUDIO ENGINE SINIFI
 // ============================================
 class AurivoAudioEngine {
 private:
@@ -513,7 +513,7 @@ private:
     std::atomic<bool> m_overlapCrossfadeActive;
     std::atomic<uint64_t> m_crossfadeGeneration;
     
-    // Audio parameters
+    // Ses parameters
     float m_masterVolume;      // 0-100
     float m_preampGain;        // -12dB to +12dB
     float m_eqGains[NUM_EQ_BANDS];  // -15dB to +15dB per band
@@ -534,10 +534,10 @@ private:
     float m_reverbHFRatio;     // 0.001-0.999
     float m_reverbInputGain;   // -96 to +12 dB
     
-    // DSP Master Enable
+    // DSP Master Etkinleştir
     bool m_dspEnabled;                       // Master DSP on/off switch
     
-    // State
+    // Durum
     bool m_initialized;
     std::mutex m_mutex;
     
@@ -1251,14 +1251,14 @@ public:
         }
     }
     
-    // Normalize fonksiyonu (tek seferlik)
+    // Normalize et fonksiyonu (tek seferlik)
     float normalizeAudio(float targetDB) {
         if (!m_stream) return 0.0f;
         
         // Peak level al
         float peak = getPeakLevel();
         
-        // Normalize gain hesapla
+        // Normalize et gain hesapla
         float normalizeGain = targetDB - peak;
         
         // Max gain limiti
@@ -2637,7 +2637,7 @@ public:
             applyStereoWidenerToDSP();
             printf("[STEREO WIDENER] Enabled\n");
         } else {
-            // Reset to normal stereo (100%)
+            // Sıfırla to normal stereo (100%)
             if (m_aurivoDSP) {
                 set_stereo_width(m_aurivoDSP, 1.0f);  // Normal stereo
             }
@@ -2756,7 +2756,7 @@ public:
             applyEchoToDSP();
             printf("[ECHO] Enabled\n");
         } else {
-            // Disable echo in DSP
+            // Devre dışı bırak echo in DSP
             if (m_aurivoDSP) {
                 set_echo_params(m_aurivoDSP, 0, 0, 0, 0);
             }
@@ -3069,7 +3069,7 @@ public:
 private:
 public:
     
-    // New Effect Setters - Settings stored regardless of m_dspEnabled
+    // New Effect Setters - Ayarlar stored regardless of m_dspEnabled
     void setCompressorForEngine(bool enabled, float thresh, float ratio, float att, float rel, float makeup) {
         std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -3323,7 +3323,7 @@ public:
                     gainR = gainR * releaseCoef + targetGainR * (1.0f - releaseCoef);
                 }
                 
-                // Apply limiting
+                // Uygula limiting
                 samples[i * 2] = sampleL * gainL;
                 samples[i * 2 + 1] = sampleR * gainR;
                 
@@ -3392,7 +3392,7 @@ AurivoAudioEngine* AurivoAudioEngine::s_instance = nullptr;
 // ============================================
 static AurivoAudioEngine* g_engine = nullptr;
 
-// Initialize
+// Başlat
 Napi::Value InitAudio(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     
@@ -3425,7 +3425,7 @@ Napi::Value Cleanup(const Napi::CallbackInfo& info) {
     return info.Env().Undefined();
 }
 
-// Load File
+// Yükle File
 Napi::Value LoadFile(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     
@@ -3698,7 +3698,7 @@ Napi::Value SetEQBands(const Napi::CallbackInfo& info) {
     return result;
 }
 
-// Reset EQ
+// Sıfırla EQ
 Napi::Value ResetEQ(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     if (g_engine) g_engine->resetEQ();
@@ -3917,7 +3917,7 @@ Napi::Value GetAGCStatus(const Napi::CallbackInfo& info) {
     return result;
 }
 
-// Apply emergency gain reduction from JS
+// Uygula emergency gain reduction from JS
 Napi::Value ApplyEmergencyReduction(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     if (g_engine) {
@@ -4318,7 +4318,7 @@ Napi::Value SetReverbInputGain(const Napi::CallbackInfo& info) {
 }
 
 // ============================================
-// COMPRESSOR (BASS_FX) - NAPI
+// KOMPRESÖR (BASS_FX) - NAPI
 // ============================================
 Napi::Value EnableCompressor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -5586,7 +5586,7 @@ void CALLBACK TapeSat_DSP(HDSP handle, DWORD channel, void* buffer, DWORD length
 
     float sr = g_tapeSatState.sr;
 
-    // Parameters
+    // Parametreler
     float drive = dBToLinear(clampf(g_tapeSat.driveDb, 0.0f, 24.0f));
     float mix = clampf(g_tapeSat.mix, 0.0f, 100.0f) / 100.0f;
     float out = dBToLinear(clampf(g_tapeSat.outputDb, -12.0f, 12.0f));
@@ -6046,7 +6046,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("setBalance", Napi::Function::New(env, SetBalance));
     exports.Set("getBalance", Napi::Function::New(env, GetBalance));
     
-    // DSP Enable/Disable
+    // DSP Etkinleştir/Devre dışı bırak
     exports.Set("setDSPEnabled", Napi::Function::New(env, SetDSPEnabled));
     exports.Set("isDSPEnabled", Napi::Function::New(env, IsDSPEnabled));
     

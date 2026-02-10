@@ -21,7 +21,6 @@ else()
     message(STATUS "SDL2_image not found; will use SDL_LoadBMP fallback")
 endif()
 
-
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIR})
@@ -30,10 +29,19 @@ include_directories(${OPENGL_INCLUDE_DIR})
 find_package(Threads REQUIRED)
 
 # Use system libprojectm instead of bundled Clementine version
-pkg_check_modules(PROJECTM REQUIRED projectM-4)
-pkg_check_modules(PROJECTM_PLAYLIST REQUIRED projectM-4-playlist)
+pkg_check_modules(PROJECTM projectM-4)
+pkg_check_modules(PROJECTM_PLAYLIST projectM-4-playlist)
 include_directories(${PROJECTM_INCLUDE_DIRS} ${PROJECTM_PLAYLIST_INCLUDE_DIRS})
 link_directories(${PROJECTM_LIBRARY_DIRS} ${PROJECTM_PLAYLIST_LIBRARY_DIRS})
+
+# Windows fallback when pkg-config doesn't provide projectM-4
+if (WIN32 AND (NOT PROJECTM_FOUND OR NOT PROJECTM_PLAYLIST_FOUND))
+    message(STATUS "projectM pkg-config not found; using MSYS2 fallback paths")
+    set(PROJECTM_INCLUDE_DIRS "C:/msys64/mingw64/include")
+    set(PROJECTM_LIBRARY_DIRS "C:/msys64/mingw64/lib")
+    set(PROJECTM_LIBRARIES "projectM-4")
+    set(PROJECTM_PLAYLIST_LIBRARIES "projectM-4-playlist")
+endif()
 
 # Dear ImGui (vendored)
 get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -47,6 +55,15 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
+
+# Ensure UTF-8 source parsing on Windows (fix mojibake in non-ASCII UI strings)
+if (WIN32)
+    if (MSVC)
+        target_compile_options(imgui PRIVATE /utf-8)
+    else()
+        target_compile_options(imgui PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    endif()
+endif()
 
 target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
@@ -75,12 +92,22 @@ add_executable(aurivo-projectm-visualizer
     gl_loader.cpp
 )
 
+# Ensure UTF-8 source parsing on Windows (fix mojibake in non-ASCII UI strings)
+if (WIN32)
+    if (MSVC)
+        target_compile_options(aurivo-projectm-visualizer PRIVATE /utf-8)
+    else()
+        target_compile_options(aurivo-projectm-visualizer PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    endif()
+endif()
+
 target_link_libraries(aurivo-projectm-visualizer
     ${SDL2_LIBRARIES}
     ${OPENGL_LIBRARIES}
+    glew32
     imgui
-    projectM-4
-    projectM-4-playlist
+    ${PROJECTM_LIBRARIES}
+    ${PROJECTM_PLAYLIST_LIBRARIES}
     Threads::Threads
 )
 
@@ -89,7 +116,19 @@ if(SDL2_IMAGE_FOUND)
     target_compile_definitions(aurivo-projectm-visualizer PRIVATE SDL_IMAGE_MAJOR_VERSION=2)
 endif()
 
+# Dev convenience: copy the built visualizer into ../native-dist on Windows
+if (WIN32)
+    add_custom_command(TARGET aurivo-projectm-visualizer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/../native-dist"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:aurivo-projectm-visualizer>"
+            "${CMAKE_SOURCE_DIR}/../native-dist/$<TARGET_FILE_NAME:aurivo-projectm-visualizer>"
+    )
+endif()
+
 # Installation
 install(TARGETS aurivo-projectm-visualizer
     RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/../native-dist
 )
+
+

@@ -1,8 +1,8 @@
 // ============================================================
-// SDL2 + OpenGL + projectM + Dear ImGui (vendored)
-// - No SDL2_ttf
-// - HiDPI: uses drawable size for viewport, and reloads ImGui fonts + rescales style when DPI scale changes.
-// - OpenGL loader: CUSTOM (SDL_GL_GetProcAddress)
+// SDL2 + OpenGL + projectM + Dear ImGui (paketlenmiş)
+// - SDL2_ttf yok
+// - HiDPI: viewport için drawable boyutunu kullanır; DPI ölçeği değişince ImGui fontlarını yeniden yükler ve stili ölçekler.
+// - OpenGL yükleyici: CUSTOM (SDL_GL_GetProcAddress)
 // ============================================================
 
 #include <algorithm>
@@ -24,6 +24,7 @@
 #include <utility>
 #include <unistd.h>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include <SDL2/SDL.h>
@@ -32,7 +33,17 @@
 #include <SDL2/SDL_image.h>
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#include <GL/glew.h>
+#endif
 #include <SDL2/SDL_opengl.h>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <projectM-4/projectM.h>
 #include <projectM-4/audio.h>
@@ -55,6 +66,8 @@ enum class UiLang {
     ES,
     HI,
 };
+
+static const char* fixMojibakeCached(const char* s);
 
 static std::string toLowerAscii(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
@@ -121,7 +134,7 @@ static bool isArabicDiacritic(uint32_t cp) {
 }
 
 static bool isArabicJoinCandidate(uint32_t cp) {
-    // Arabic letters (basic + extended) and the presentation forms we generate later.
+    // Arapça harfler (temel + genişletilmiş) ve birazdan üreteceğimiz sunum biçimleri.
     if (cp >= 0x0600 && cp <= 0x06FF) return true;
     if (cp >= 0x0750 && cp <= 0x077F) return true;
     if (cp >= 0x08A0 && cp <= 0x08FF) return true;
@@ -131,29 +144,29 @@ static bool isArabicJoinCandidate(uint32_t cp) {
 enum class ArabicJoinType { NONE, RIGHT, DUAL };
 
 static ArabicJoinType arabicJoinType(uint32_t cp) {
-    // Non-joining / transparent marks
+    // Bağlanmayan / şeffaf işaretler
     if (!isArabicJoinCandidate(cp) || isArabicDiacritic(cp)) return ArabicJoinType::NONE;
 
-    // Right-joining (connects to previous only)
+    // Sağa bağlanan (yalnızca öncekiyle bağlanır)
     switch (cp) {
-        case 0x0622: // آ
-        case 0x0623: // أ
-        case 0x0624: // ؤ
-        case 0x0625: // إ
-        case 0x0627: // ا
-        case 0x0629: // ة
-        case 0x062F: // د
-        case 0x0630: // ذ
-        case 0x0631: // ر
-        case 0x0632: // ز
-        case 0x0648: // و
-        case 0x0649: // ى
+        case 0x0622: // Ø¢
+        case 0x0623: // Ø£
+        case 0x0624: // Ø¤
+        case 0x0625: // Ø¥
+        case 0x0627: // Ø§
+        case 0x0629: // Ø©
+        case 0x062F: // Ø¯
+        case 0x0630: // Ø°
+        case 0x0631: // Ø±
+        case 0x0632: // Ø²
+        case 0x0648: // Ùˆ
+        case 0x0649: // Ù‰
             return ArabicJoinType::RIGHT;
         default:
             break;
     }
 
-    // Dual-joining for most other letters in our UI text
+    // UI metnimizdeki diğer harflerin çoğu için çift yönlü bağlanan
     if ((cp >= 0x0626 && cp <= 0x0647) || cp == 0x064A) return ArabicJoinType::DUAL;
     return ArabicJoinType::NONE;
 }
@@ -166,43 +179,43 @@ struct ArabicForms {
 };
 
 static const ArabicForms* arabicForms(uint32_t cp) {
-    // Minimal mapping table for UI strings (Arabic Presentation Forms-B).
+    // UI stringleri için minimal eşleme tablosu (Arapça Sunum Biçimleri-B).
     static const std::pair<uint32_t, ArabicForms> table[] = {
-        {0x0622, {0xFE81, 0xFE82, 0, 0}}, // آ
-        {0x0623, {0xFE83, 0xFE84, 0, 0}}, // أ
-        {0x0624, {0xFE85, 0xFE86, 0, 0}}, // ؤ
-        {0x0625, {0xFE87, 0xFE88, 0, 0}}, // إ
-        {0x0626, {0xFE89, 0xFE8A, 0xFE8B, 0xFE8C}}, // ئ
-        {0x0627, {0xFE8D, 0xFE8E, 0, 0}}, // ا
-        {0x0628, {0xFE8F, 0xFE90, 0xFE91, 0xFE92}}, // ب
-        {0x0629, {0xFE93, 0xFE94, 0, 0}}, // ة
-        {0x062A, {0xFE95, 0xFE96, 0xFE97, 0xFE98}}, // ت
-        {0x062B, {0xFE99, 0xFE9A, 0xFE9B, 0xFE9C}}, // ث
-        {0x062C, {0xFE9D, 0xFE9E, 0xFE9F, 0xFEA0}}, // ج
-        {0x062D, {0xFEA1, 0xFEA2, 0xFEA3, 0xFEA4}}, // ح
-        {0x062E, {0xFEA5, 0xFEA6, 0xFEA7, 0xFEA8}}, // خ
-        {0x062F, {0xFEA9, 0xFEAA, 0, 0}}, // د
-        {0x0630, {0xFEAB, 0xFEAC, 0, 0}}, // ذ
-        {0x0631, {0xFEAD, 0xFEAE, 0, 0}}, // ر
-        {0x0632, {0xFEAF, 0xFEB0, 0, 0}}, // ز
-        {0x0633, {0xFEB1, 0xFEB2, 0xFEB3, 0xFEB4}}, // س
-        {0x0634, {0xFEB5, 0xFEB6, 0xFEB7, 0xFEB8}}, // ش
-        {0x0635, {0xFEB9, 0xFEBA, 0xFEBB, 0xFEBC}}, // ص
-        {0x0636, {0xFEBD, 0xFEBE, 0xFEBF, 0xFEC0}}, // ض
-        {0x0637, {0xFEC1, 0xFEC2, 0xFEC3, 0xFEC4}}, // ط
-        {0x0638, {0xFEC5, 0xFEC6, 0xFEC7, 0xFEC8}}, // ظ
-        {0x0639, {0xFEC9, 0xFECA, 0xFECB, 0xFECC}}, // ع
-        {0x063A, {0xFECD, 0xFECE, 0xFECF, 0xFED0}}, // غ
-        {0x0641, {0xFED1, 0xFED2, 0xFED3, 0xFED4}}, // ف
-        {0x0642, {0xFED5, 0xFED6, 0xFED7, 0xFED8}}, // ق
-        {0x0643, {0xFED9, 0xFEDA, 0xFEDB, 0xFEDC}}, // ك
-        {0x0644, {0xFEDD, 0xFEDE, 0xFEDF, 0xFEE0}}, // ل
-        {0x0645, {0xFEE1, 0xFEE2, 0xFEE3, 0xFEE4}}, // م
-        {0x0646, {0xFEE5, 0xFEE6, 0xFEE7, 0xFEE8}}, // ن
-        {0x0647, {0xFEE9, 0xFEEA, 0xFEEB, 0xFEEC}}, // ه
-        {0x0648, {0xFEED, 0xFEEE, 0, 0}}, // و
-        {0x0649, {0xFEEF, 0xFEF0, 0, 0}}, // ى
-        {0x064A, {0xFEF1, 0xFEF2, 0xFEF3, 0xFEF4}}, // ي
+        {0x0622, {0xFE81, 0xFE82, 0, 0}}, // Ø¢
+        {0x0623, {0xFE83, 0xFE84, 0, 0}}, // Ø£
+        {0x0624, {0xFE85, 0xFE86, 0, 0}}, // Ø¤
+        {0x0625, {0xFE87, 0xFE88, 0, 0}}, // Ø¥
+        {0x0626, {0xFE89, 0xFE8A, 0xFE8B, 0xFE8C}}, // Ø¦
+        {0x0627, {0xFE8D, 0xFE8E, 0, 0}}, // Ø§
+        {0x0628, {0xFE8F, 0xFE90, 0xFE91, 0xFE92}}, // Ø¨
+        {0x0629, {0xFE93, 0xFE94, 0, 0}}, // Ø©
+        {0x062A, {0xFE95, 0xFE96, 0xFE97, 0xFE98}}, // Øª
+        {0x062B, {0xFE99, 0xFE9A, 0xFE9B, 0xFE9C}}, // Ø«
+        {0x062C, {0xFE9D, 0xFE9E, 0xFE9F, 0xFEA0}}, // Ø¬
+        {0x062D, {0xFEA1, 0xFEA2, 0xFEA3, 0xFEA4}}, // Ø­
+        {0x062E, {0xFEA5, 0xFEA6, 0xFEA7, 0xFEA8}}, // Ø®
+        {0x062F, {0xFEA9, 0xFEAA, 0, 0}}, // Ø¯
+        {0x0630, {0xFEAB, 0xFEAC, 0, 0}}, // Ø°
+        {0x0631, {0xFEAD, 0xFEAE, 0, 0}}, // Ø±
+        {0x0632, {0xFEAF, 0xFEB0, 0, 0}}, // Ø²
+        {0x0633, {0xFEB1, 0xFEB2, 0xFEB3, 0xFEB4}}, // Ø³
+        {0x0634, {0xFEB5, 0xFEB6, 0xFEB7, 0xFEB8}}, // Ø´
+        {0x0635, {0xFEB9, 0xFEBA, 0xFEBB, 0xFEBC}}, // Øµ
+        {0x0636, {0xFEBD, 0xFEBE, 0xFEBF, 0xFEC0}}, // Ø¶
+        {0x0637, {0xFEC1, 0xFEC2, 0xFEC3, 0xFEC4}}, // Ø·
+        {0x0638, {0xFEC5, 0xFEC6, 0xFEC7, 0xFEC8}}, // Ø¸
+        {0x0639, {0xFEC9, 0xFECA, 0xFECB, 0xFECC}}, // Ø¹
+        {0x063A, {0xFECD, 0xFECE, 0xFECF, 0xFED0}}, // Øº
+        {0x0641, {0xFED1, 0xFED2, 0xFED3, 0xFED4}}, // Ù
+        {0x0642, {0xFED5, 0xFED6, 0xFED7, 0xFED8}}, // Ù‚
+        {0x0643, {0xFED9, 0xFEDA, 0xFEDB, 0xFEDC}}, // Ùƒ
+        {0x0644, {0xFEDD, 0xFEDE, 0xFEDF, 0xFEE0}}, // Ù„
+        {0x0645, {0xFEE1, 0xFEE2, 0xFEE3, 0xFEE4}}, // Ù…
+        {0x0646, {0xFEE5, 0xFEE6, 0xFEE7, 0xFEE8}}, // Ù†
+        {0x0647, {0xFEE9, 0xFEEA, 0xFEEB, 0xFEEC}}, // Ù‡
+        {0x0648, {0xFEED, 0xFEEE, 0, 0}}, // Ùˆ
+        {0x0649, {0xFEEF, 0xFEF0, 0, 0}}, // Ù‰
+        {0x064A, {0xFEF1, 0xFEF2, 0xFEF3, 0xFEF4}}, // ÙŠ
     };
 
     for (const auto& [k, v] : table) {
@@ -212,12 +225,12 @@ static const ArabicForms* arabicForms(uint32_t cp) {
 }
 
 static bool isLamAlef(uint32_t next, uint32_t& outIso, uint32_t& outFinal) {
-    // Lam-alef ligatures (Arabic Presentation Forms-A).
+    // Lam-alef ligatürleri (Arapça Sunum Biçimleri-A).
     switch (next) {
-        case 0x0622: outIso = 0xFEF5; outFinal = 0xFEF6; return true; // لآ
-        case 0x0623: outIso = 0xFEF7; outFinal = 0xFEF8; return true; // لأ
-        case 0x0625: outIso = 0xFEF9; outFinal = 0xFEFA; return true; // لإ
-        case 0x0627: outIso = 0xFEFB; outFinal = 0xFEFC; return true; // لا
+        case 0x0622: outIso = 0xFEF5; outFinal = 0xFEF6; return true; // Ù„Ø¢
+        case 0x0623: outIso = 0xFEF7; outFinal = 0xFEF8; return true; // Ù„Ø£
+        case 0x0625: outIso = 0xFEF9; outFinal = 0xFEFA; return true; // Ù„Ø¥
+        case 0x0627: outIso = 0xFEFB; outFinal = 0xFEFC; return true; // Ù„Ø§
         default: return false;
     }
 }
@@ -231,11 +244,11 @@ static std::string rtlizeArabicText(const char* utf8) {
     for (size_t i = 0; i < len;) {
         uint32_t cp = 0;
         if (!utf8DecodeOne(utf8, len, i, cp)) break;
-        if (isArabicDiacritic(cp)) continue; // drop diacritics for clarity in this simple shaper
+        if (isArabicDiacritic(cp)) continue; // bu basit şekillendiricide okunabilirlik için harekeleri atla
         cps.push_back(cp);
     }
 
-    // Shape to presentation forms (very small subset, enough for our UI labels)
+    // Sunum biçimlerine dönüştür (çok küçük alt küme, UI etiketleri için yeterli)
     std::vector<uint32_t> shaped;
     shaped.reserve(cps.size());
 
@@ -250,14 +263,14 @@ static std::string rtlizeArabicText(const char* utf8) {
     for (size_t idx = 0; idx < cps.size(); idx++) {
         const uint32_t cp = cps[idx];
 
-        // Lam-alef ligature handling
+        // Lam-alef ligatürü işleme
         if (cp == 0x0644 && idx + 1 < cps.size()) {
             uint32_t iso = 0, fin = 0;
             if (isLamAlef(cps[idx + 1], iso, fin)) {
                 const ArabicJoinType pj = prevJoinType((int)idx - 1);
                 const bool connectsPrev = (pj == ArabicJoinType::DUAL || pj == ArabicJoinType::RIGHT);
                 shaped.push_back(connectsPrev ? fin : iso);
-                idx += 1; // consume next
+                idx += 1; // sonrakini tüket
                 continue;
             }
         }
@@ -269,10 +282,10 @@ static std::string rtlizeArabicText(const char* utf8) {
             continue;
         }
 
-        // Find previous meaningful character
+        // Önceki anlamlı karakteri bul
         int prev = (int)idx - 1;
         while (prev >= 0 && isArabicDiacritic(cps[(size_t)prev])) prev--;
-        // Find next meaningful character
+        // Sonraki anlamlı karakteri bul
         int next = (int)idx + 1;
         while (next < (int)cps.size() && isArabicDiacritic(cps[(size_t)next])) next++;
 
@@ -296,16 +309,16 @@ static std::string rtlizeArabicText(const char* utf8) {
         shaped.push_back(out);
     }
 
-    // Reverse for LTR renderer (approximate RTL)
+    // LTR çizici için ters çevir (yaklaşık RTL)
     std::reverse(shaped.begin(), shaped.end());
 
     auto isLtrRunCp = [](uint32_t cp) -> bool {
-        // ASCII alnum
+        // ASCII alfasayısal
         if (cp < 128) return std::isalnum((unsigned char)cp) != 0;
-        // Arabic-Indic digits
+        // Arap-Hint rakamları
         if (cp >= 0x0660 && cp <= 0x0669) return true;
         if (cp >= 0x06F0 && cp <= 0x06F9) return true;
-        // Common math symbol we use in labels
+        // Etiketlerde kullandığımız yaygın matematik sembolü
         if (cp == 0x00D7) return true; // ×
         return false;
     };
@@ -326,7 +339,7 @@ static std::string rtlizeArabicText(const char* utf8) {
 
     for (auto& cp : shaped) swapBracket(cp);
 
-    // Reverse LTR runs (numbers/latin) back so they read correctly inside RTL text.
+    // RTL metin içinde doğru okunmaları için LTR parçalarını (sayı/latin) geri çevir.
     for (size_t i = 0; i < shaped.size();) {
         if (!isLtrRunCp(shaped[i])) { i++; continue; }
         size_t j = i + 1;
@@ -362,7 +375,7 @@ static UiLang detectUiLang() {
         "";
 
     std::string s = toLowerAscii(std::string(raw));
-    // Normalize common locale formats: "tr-TR", "tr_TR.UTF-8", "ar_SA@arabic" -> "tr"/"ar"
+    // Yaygın locale biçimlerini normalize et: "tr-TR", "tr_TR.UTF-8", "ar_SA@arabic" -> "tr"/"ar"
     if (const auto pos = s.find_first_of(".@"); pos != std::string::npos) s.resize(pos);
     if (const auto pos = s.find_first_of("-_"); pos != std::string::npos) s.resize(pos);
 
@@ -380,27 +393,27 @@ static UiLang detectUiLang() {
 
 static const char* L7(const char* en, const char* tr, const char* ar, const char* fr, const char* de, const char* es, const char* hi) {
     switch (detectUiLang()) {
-        case UiLang::TR: return tr;
-        case UiLang::AR: return rtlCacheArabic(ar);
-        case UiLang::FR: return fr;
-        case UiLang::DE: return de;
-        case UiLang::ES: return es;
-        case UiLang::HI: return hi;
+        case UiLang::TR: return fixMojibakeCached(tr);
+        case UiLang::AR: return rtlCacheArabic(fixMojibakeCached(ar));
+        case UiLang::FR: return fixMojibakeCached(fr);
+        case UiLang::DE: return fixMojibakeCached(de);
+        case UiLang::ES: return fixMojibakeCached(es);
+        case UiLang::HI: return fixMojibakeCached(hi);
         case UiLang::EN:
-        default: return en;
+        default: return fixMojibakeCached(en);
     }
 }
 
 static const char* L7Raw(const char* en, const char* tr, const char* ar, const char* fr, const char* de, const char* es, const char* hi) {
     switch (detectUiLang()) {
-        case UiLang::TR: return tr;
-        case UiLang::AR: return ar;
-        case UiLang::FR: return fr;
-        case UiLang::DE: return de;
-        case UiLang::ES: return es;
-        case UiLang::HI: return hi;
+        case UiLang::TR: return fixMojibakeCached(tr);
+        case UiLang::AR: return fixMojibakeCached(ar);
+        case UiLang::FR: return fixMojibakeCached(fr);
+        case UiLang::DE: return fixMojibakeCached(de);
+        case UiLang::ES: return fixMojibakeCached(es);
+        case UiLang::HI: return fixMojibakeCached(hi);
         case UiLang::EN:
-        default: return en;
+        default: return fixMojibakeCached(en);
     }
 }
 
@@ -437,7 +450,7 @@ static std::string getPresetsPath(int argc, char* argv[]) {
         return std::string(envPath);
     }
 
-    // Default: ../third_party/projectm/presets relative to executable
+    // Varsayılan: yürütülebilire göre ../third_party/projectm/presets
     try {
         fs::path exePath = fs::canonical("/proc/self/exe");
         fs::path defaultPath = exePath.parent_path() / ".." / "third_party" / "projectm" / "presets";
@@ -579,7 +592,7 @@ struct AppState {
     SDL_Window* window = nullptr;
     SDL_GLContext gl = nullptr;
 
-    // Separate preset picker window (OS-level), so it doesn't cover the visualizer.
+    // Görselleştiriciyi kapatmaması için ayrı preset seçici pencere (OS düzeyi).
     SDL_Window* pickerWindow = nullptr;
     SDL_GLContext pickerGL = nullptr;
     ImGuiContext* pickerImGui = nullptr;
@@ -591,9 +604,9 @@ struct AppState {
     int fbW = 1280;
     int fbH = 720;
 
-    // Preferred main window size.
-    // When launched from Aurivo (Electron), this is overridden by env AURIVO_VIS_MAIN_W/H
-    // so the window always opens at the app's expected default size.
+    // Tercih edilen ana pencere boyutu.
+    // Aurivo (Electron) içinden başlatıldığında env AURIVO_VIS_MAIN_W/H ile geçersiz kılınır
+    // böylece pencere her zaman uygulamanın beklediği varsayılan boyutta açılır.
     int mainPrefW = 900;
     int mainPrefH = 650;
     uint64_t mainEnforceUntilMs = 0;
@@ -624,13 +637,19 @@ struct AppState {
     TextureQuality textureQuality = TextureQuality::Q1024;
     int targetFps = 60;
 
-    // Audio feed: ONLY from app PCM via stdin (Electron pipes float32 interleaved).
+    // Ses beslemesi: SADECE stdin üzerinden uygulama PCM'i (Electron float32 interleaved pipe eder).
     std::vector<uint8_t> pcmInBuf;
     std::vector<float> pcmTmp;
     uint64_t lastPcmMs = 0;
     unsigned int pmMaxSamplesPerChannel = 0;
     bool audioStale = true;
     bool debugOverlay = false;
+
+#ifdef _WIN32
+    HANDLE stdinHandle = INVALID_HANDLE_VALUE;
+    bool stdinIsPipe = false;
+#endif
+    bool stdinNonBlocking = false;
 
     bool showPresetPicker = false;
     int delaySeconds = 15;
@@ -775,18 +794,38 @@ static inline uint32_t readU32LE(const uint8_t* p) {
 }
 
 static bool initStdinNonBlocking() {
+#ifdef _WIN32
+    g.stdinHandle = (HANDLE)_get_osfhandle(_fileno(stdin));
+    if (g.stdinHandle == INVALID_HANDLE_VALUE) {
+        g.stdinNonBlocking = false;
+        return false;
+    }
+
+    DWORD type = GetFileType(g.stdinHandle);
+    if (type == FILE_TYPE_PIPE) {
+        g.stdinIsPipe = true;
+        g.stdinNonBlocking = true;
+        return true;
+    }
+
+    // Konsol veya pipe olmayan durumda: okunacak veri yok, ama bloklama yok.
+    g.stdinIsPipe = false;
+    g.stdinNonBlocking = true;
+    return true;
+#else
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     if (flags == -1) return false;
     if (fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) == -1) return false;
     return true;
+#endif
 }
 
 static void feedSilenceIfStale(uint64_t now) {
     if (!g.pm) return;
     if (g.pmMaxSamplesPerChannel == 0) return;
 
-    // If we haven't received PCM recently, keep overwriting the internal buffer with silence.
-    // This prevents "last non-zero audio" from lingering and moving visuals while paused.
+    // Yakın zamanda PCM almadıysak iç tamponu sessizlikle ezmeye devam et.
+    // Bu, duraklatıldığında "son sıfır olmayan ses"in kalıp görselleri hareket ettirmesini önler.
     const uint64_t staleMs = 150;
     if (g.lastPcmMs != 0 && (now - g.lastPcmMs) <= staleMs) {
         if (g.audioStale) {
@@ -810,9 +849,32 @@ static void feedSilenceIfStale(uint64_t now) {
 }
 
 static void pumpPcmFromStdin() {
-    // Read any available bytes from stdin and parse v2 packets:
+    // stdin'den gelen tüm baytları oku ve v2 paketlerini ayrıştır:
     // [u32 channels][u32 countPerChannel][float32 payload interleaved]
     uint8_t tmp[64 * 1024];
+#ifdef _WIN32
+    if (!g.stdinNonBlocking || !g.stdinIsPipe) {
+        return;
+    }
+    for (;;) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(g.stdinHandle, nullptr, 0, nullptr, &avail, nullptr)) {
+            break;
+        }
+        if (avail == 0) {
+            break;
+        }
+        DWORD toRead = (DWORD)std::min<size_t>(sizeof(tmp), (size_t)avail);
+        DWORD r = 0;
+        if (!ReadFile(g.stdinHandle, tmp, toRead, &r, nullptr) || r == 0) {
+            break;
+        }
+        g.pcmInBuf.insert(g.pcmInBuf.end(), tmp, tmp + r);
+        if (r < toRead) {
+            break;
+        }
+    }
+#else
     for (;;) {
         ssize_t r = ::read(STDIN_FILENO, tmp, sizeof(tmp));
         if (r > 0) {
@@ -820,24 +882,25 @@ static void pumpPcmFromStdin() {
             continue;
         }
         if (r == 0) {
-            // EOF: upstream closed pipe.
+            // EOF: üst süreç pipe'ı kapattı.
             break;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;
         }
-        // Any other read error: stop trying for this frame.
+        // Diğer okuma hatası: bu kare için denemeyi bırak.
         break;
     }
+#endif
 
-    // Parse as many complete packets as possible.
+    // Mümkün olduğunca çok tam paketi ayrıştır.
     for (;;) {
         if (g.pcmInBuf.size() < 8) return;
         const uint8_t* p = g.pcmInBuf.data();
         uint32_t channels = readU32LE(p + 0);
         uint32_t countPerChannel = readU32LE(p + 4);
 
-        // Basic validation to avoid desync / abuse.
+        // Desync / suistimal önlemek için temel doğrulama.
         if (!((channels == 1) || (channels == 2)) || countPerChannel == 0 || countPerChannel > 65536) {
             g.pcmInBuf.clear();
             return;
@@ -848,7 +911,7 @@ static void pumpPcmFromStdin() {
         const size_t packetBytes = 8 + payloadBytes;
         if (g.pcmInBuf.size() < packetBytes) return;
 
-        // Copy payload into aligned float buffer.
+        // Yükü hizalı float tamponuna kopyala.
         g.pcmTmp.resize(floatCount);
         std::memcpy(g.pcmTmp.data(), p + 8, payloadBytes);
 
@@ -858,8 +921,8 @@ static void pumpPcmFromStdin() {
             const float* samplesPtr = g.pcmTmp.data();
             unsigned int n = (unsigned int)countPerChannel;
 
-            // projectM stores up to max samples/channel. To avoid ambiguity about "remainder discarded",
-            // explicitly feed only the newest samples when packets are larger than the internal buffer.
+            // projectM kanal başına en fazla örnek saklar. "kalanlar atıldı" belirsizliğini önlemek için,
+            // paketler iç tamponu aştığında açıkça yalnızca en yeni örnekleri besle.
             if (maxN > 0 && n > maxN) {
                 const size_t skipFrames = (size_t)(n - maxN);
                 samplesPtr = g.pcmTmp.data() + skipFrames * (size_t)channels;
@@ -870,7 +933,7 @@ static void pumpPcmFromStdin() {
             g.lastPcmMs = nowMs();
         }
 
-        // Consume packet.
+        // Paketi tüket.
         g.pcmInBuf.erase(g.pcmInBuf.begin(), g.pcmInBuf.begin() + (ptrdiff_t)packetBytes);
     }
 }
@@ -901,8 +964,8 @@ static void enforceMainWindowInitialSize() {
         return;
     }
 
-    // Some WMs/compositors apply their own initial size after creation.
-    // Force our preferred size briefly on startup.
+    // Bazı WM/compositor'lar oluşturma sonrası kendi başlangıç boyutlarını uygular.
+    // Başlangıçta kısa süreliğine tercih edilen boyutu zorla.
     SDL_RestoreWindow(g.window);
     SDL_SetWindowSize(g.window, g.mainPrefW, g.mainPrefH);
     SDL_SetWindowPosition(g.window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
@@ -962,8 +1025,8 @@ static int textureSizeFromMode(TextureQuality q) {
 static void applyTextureQuality(TextureQuality q) {
     g.textureQuality = q;
     int size = textureSizeFromMode(q);
-    // projectM C API may not expose a direct texture size setter in this build.
-    // Keep state + log; wiring can be added where textures/FBOs are allocated.
+    // projectM C API bu derlemede doğrudan doku boyutu ayarlayıcısı sunmayabilir.
+    // Durumu ve logu tut; bağlama, texture/FBO ayrılan yerde eklenebilir.
     std::cout << "[UI] quality set to " << size << std::endl;
 }
 
@@ -986,7 +1049,7 @@ static void flushPendingPresetApply() {
     const int idx = g.pendingPresetApply;
     g.pendingPresetApply = -1;
 
-    // Ensure we are on the main GL context when loading a preset.
+    // Preset yüklerken ana GL context'inde olduğumuzdan emin ol.
     SDL_GL_MakeCurrent(g.window, g.gl);
     applyPresetByIndexNow(idx);
     scheduleNextAutoSwitch();
@@ -1021,7 +1084,7 @@ static void pumpAutoPresetSwitch() {
 
     if (enabledCount <= 0) return;
 
-    // If exactly one preset is enabled, stay on it (but recover if current isn't that one).
+    // Tam olarak bir preset etkinse onda kal (ama mevcut o değilse toparla).
     if (enabledCount == 1) {
         if (firstEnabled >= 0 && g.currentPreset != firstEnabled) {
             requestPresetPreview(firstEnabled);
@@ -1046,13 +1109,35 @@ static void pumpAutoPresetSwitch() {
 }
 
 static std::optional<std::string> findInterFontPath() {
-    // Try a few likely locations.
+    // Env override (gerekirse host uygulama tarafından set edilir)
+    if (const char* envFont = std::getenv("AURIVO_VIS_FONT_PATH")) {
+        if (*envFont) {
+            std::error_code ec;
+            fs::path p(envFont);
+            if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+                return fs::canonical(p, ec).string();
+            }
+        }
+    }
+
+    // Olası birkaç konumu dene.
     const std::vector<fs::path> candidates = []() {
         std::vector<fs::path> c;
         c.emplace_back(fs::path("assets/fonts/Inter-Regular.ttf"));
         c.emplace_back(fs::path("../assets/fonts/Inter-Regular.ttf"));
         c.emplace_back(fs::path("../../assets/fonts/Inter-Regular.ttf"));
 
+#ifdef _WIN32
+        // Windows: yürütülebilir konumundan çöz
+        char exePath[MAX_PATH] = {0};
+        DWORD n = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            fs::path exeDir = fs::path(exePath).parent_path();
+            c.emplace_back(exeDir / "assets" / "fonts" / "Inter-Regular.ttf");
+            c.emplace_back(exeDir / ".." / "assets" / "fonts" / "Inter-Regular.ttf");
+            c.emplace_back(exeDir / ".." / ".." / "assets" / "fonts" / "Inter-Regular.ttf");
+        }
+#else
         try {
             fs::path exePath = fs::canonical("/proc/self/exe");
             fs::path exeDir = exePath.parent_path();
@@ -1061,6 +1146,7 @@ static std::optional<std::string> findInterFontPath() {
             c.emplace_back(exeDir / ".." / ".." / "assets" / "fonts" / "Inter-Regular.ttf");
         } catch (...) {
         }
+#endif
 
         return c;
     }();
@@ -1072,6 +1158,22 @@ static std::optional<std::string> findInterFontPath() {
         }
     }
 	    return std::nullopt;
+}
+
+static std::optional<std::string> findFirstExistingFontPath(const std::vector<fs::path>& candidates);
+
+static std::optional<std::string> findWindowsUiFontPath() {
+#ifdef _WIN32
+    const std::vector<fs::path> candidates = {
+        fs::path("C:/Windows/Fonts/segoeui.ttf"),
+        fs::path("C:/Windows/Fonts/tahoma.ttf"),
+        fs::path("C:/Windows/Fonts/arial.ttf"),
+        fs::path("C:/Windows/Fonts/arialuni.ttf")
+    };
+    return findFirstExistingFontPath(candidates);
+#else
+    return std::nullopt;
+#endif
 }
 
 static std::optional<std::string> findFirstExistingFontPath(const std::vector<fs::path>& candidates) {
@@ -1087,6 +1189,11 @@ static std::optional<std::string> findFirstExistingFontPath(const std::vector<fs
 static std::optional<std::string> findArabicFontPath() {
     const std::vector<fs::path> candidates = {
         fs::path("assets/fonts/NotoSansArabic-Regular.ttf"),
+#ifdef _WIN32
+        fs::path("C:/Windows/Fonts/segoeui.ttf"),
+        fs::path("C:/Windows/Fonts/seguihis.ttf"),
+        fs::path("C:/Windows/Fonts/arial.ttf"),
+#endif
         fs::path("/usr/share/fonts/noto/NotoSansArabic-Regular.ttf"),
         fs::path("/usr/share/fonts/noto/NotoSansArabicUI-Regular.ttf"),
         fs::path("/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf"),
@@ -1099,6 +1206,10 @@ static std::optional<std::string> findArabicFontPath() {
 static std::optional<std::string> findDevanagariFontPath() {
     const std::vector<fs::path> candidates = {
         fs::path("assets/fonts/NotoSansDevanagari-Regular.ttf"),
+#ifdef _WIN32
+        fs::path("C:/Windows/Fonts/nirmala.ttf"),
+        fs::path("C:/Windows/Fonts/segoeui.ttf"),
+#endif
         fs::path("/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf"),
         fs::path("/usr/share/fonts/noto/NotoSansDevanagariUI-Regular.ttf"),
         fs::path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
@@ -1141,13 +1252,17 @@ static void applyClementineishStyle() {
 static void reloadFontsForScale(float scale) {
 	    ImGuiIO& io = ImGui::GetIO();
 
-    // Include Latin Extended-A to cover Turkish characters reliably.
+    // Türkçe karakterleri güvenilir kapsamak için Latin Extended aralıklarını ekle.
     static ImVector<ImWchar> glyphRanges;
     if (glyphRanges.Size == 0) {
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
         const ImWchar latinExtA[] = { 0x0100, 0x017F, 0 };
+        const ImWchar latinExtB[] = { 0x0180, 0x024F, 0 };
+        const ImWchar latinExtAdd[] = { 0x1E00, 0x1EFF, 0 };
         builder.AddRanges(latinExtA);
+        builder.AddRanges(latinExtB);
+        builder.AddRanges(latinExtAdd);
         builder.AddChar(0x0130); // İ
         builder.AddChar(0x0131); // ı
         builder.AddChar(0x011E); // Ğ
@@ -1160,14 +1275,14 @@ static void reloadFontsForScale(float scale) {
     io.Fonts->Clear();
 
 	    ImFontConfig cfg;
-	    // Slightly larger + sharper font rendering by default.
+	    // Varsayılan olarak biraz daha büyük + keskin font render.
 	    cfg.OversampleH = 4;
 	    cfg.OversampleV = 3;
 	    cfg.PixelSnapH = true;
-	    cfg.RasterizerMultiply = 1.15f; // a bit bolder for readability
+	    cfg.RasterizerMultiply = 1.15f; // okunabilirlik için biraz daha kalın
 
-	    // Default font size: keep consistent with the rest of the app.
-	    // Arabic text tends to be less readable at small sizes in this UI, so bump it only for Arabic.
+	    // Varsayılan font boyutu: uygulamanın geri kalanıyla tutarlı tut.
+	    // Arapça metin küçük boyutlarda daha zor okunur; bu yüzden sadece Arapça için biraz büyüt.
 	    const bool isArabicUi = (detectUiLang() == UiLang::AR);
 	    const float basePx = isArabicUi ? 22.0f : 18.0f;
 	    const float minPx = isArabicUi ? 16.0f : 14.0f;
@@ -1176,17 +1291,17 @@ static void reloadFontsForScale(float scale) {
 	    ImFont* font = io.Fonts->AddFontFromFileTTF(g.fontPath.c_str(), fontPx, &cfg, glyphRanges.Data);
 	    if (!font) {
 	        std::cerr << "Failed to load font: " << g.fontPath << std::endl;
-	        // Fallback to default
+	        // Varsayılan'a yedekle
 	        io.Fonts->AddFontDefault();
 	    } else {
 	        io.FontDefault = font;
 	    }
 
-        // Add merged fallback fonts for non-Latin scripts (Arabic / Devanagari).
-        // Inter doesn't ship Arabic/Devanagari glyphs, so without a merged font ImGui shows "????".
+        // Latin dışı yazılar için birleşik yedek fontlar ekle (Arapça / Devanagari).
+        // Inter Arapça/Devanagari glifleri içermez; birleşik font olmazsa ImGui "????" gösterir.
         if (detectUiLang() == UiLang::AR) {
-            // Dear ImGui in this repo doesn't ship GetGlyphRangesArabic(), so provide a basic Arabic range.
-            // Includes Arabic + supplement + extended + presentation forms.
+            // Bu repodaki Dear ImGui GetGlyphRangesArabic() sağlamıyor; bu yüzden temel bir Arapça aralığı sağla.
+            // Arapça + ek + genişletilmiş + sunum biçimlerini içerir.
             static const ImWchar arabicRange[] = {
                 0x0600, 0x06FF,
                 0x0750, 0x077F,
@@ -1209,7 +1324,7 @@ static void reloadFontsForScale(float scale) {
                 std::cerr << "[Font] Arabic font not found (install noto-fonts or bundle a font in assets/fonts)." << std::endl;
             }
         } else if (detectUiLang() == UiLang::HI) {
-            // Dear ImGui doesn't ship a Devanagari glyph-range helper, so we provide a basic range.
+            // Dear ImGui Devanagari glif aralığı yardımcı fonksiyonu sağlamıyor; bu yüzden temel aralık sağlıyoruz.
             static const ImWchar devRange[] = { 0x0900, 0x097F, 0 };
             if (auto devFont = findDevanagariFontPath()) {
                 ImFontConfig mergeCfg;
@@ -1226,13 +1341,13 @@ static void reloadFontsForScale(float scale) {
             }
         }
 
-	    // Recreate font texture as requested.
+	    // İstendiği gibi font dokusunu yeniden oluştur.
 	    ImGui_ImplOpenGL3_DestroyFontsTexture();
 	    ImGui_ImplOpenGL3_CreateFontsTexture();
 }
 
 static void rescaleImGui(float scale) {
-    // Reset then scale sizes deterministically.
+    // Sıfırla, sonra boyutları deterministik olarak ölçekle.
     ImGuiStyle& style = ImGui::GetStyle();
     style = g.baseStyle;
     style.ScaleAllSizes(scale);
@@ -1251,7 +1366,7 @@ static std::string truncateToFit(const std::string& text, float maxWidth, bool* 
         return dots;
     }
 
-    // Rough binary search by byte count (ok for UTF-8 filenames in practice; tooltip shows full string).
+    // Bayt sayısına göre yaklaşık ikili arama (pratikte UTF-8 dosya adları için uygun; tooltip tam metni gösterir).
     int lo = 0;
     int hi = (int)text.size();
     while (lo < hi) {
@@ -1268,7 +1383,7 @@ static std::string truncateToFit(const std::string& text, float maxWidth, bool* 
 static void renderContextMenuContents() {
 	        // 1) Tam ekran göster/gizle
 		        if (ImGui::MenuItem(
-		                L7("Toggle fullscreen", "Tam ekran göster/gizle", "تبديل ملء الشاشة", "Basculer plein écran", "Vollbild umschalten", "Alternar pantalla completa", "फुलस्क्रीन टॉगल करें"),
+                L7("Toggle fullscreen", "Tam ekran g\u00F6ster/gizle", "ØªØ¨Ø¯ÙŠÙ„ Ù…Ù„Ø¡ Ø§Ù„Ø´Ø§Ø´Ø©", "Basculer plein Ã©cran", "Vollbild umschalten", "Alternar pantalla completa", "à¤«à¥à¤²à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤Ÿà¥‰à¤—à¤² à¤•à¤°à¥‡à¤‚"),
 		                "F",
 		                g.fullscreen
 		            )) {
@@ -1276,44 +1391,44 @@ static void renderContextMenuContents() {
 	            SDL_SetWindowFullscreen(g.window, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	        }
 
-	        // 2) Kare oranı >  (requested as FPS radio submenu)
+	        // 2) Kare oranı >  (FPS alt menüsü)
 		        ImGui::SetNextWindowSizeConstraints(ImVec2(220, 0), ImVec2(FLT_MAX, FLT_MAX));
-		        if (ImGui::BeginMenu(L7("Frame rate", "Kare oranı", "معدل الإطارات", "Fréquence d’images", "Bildrate", "Velocidad de fotogramas", "फ़्रेम दर"))) {
-		            if (ImGui::RadioButton(L7("Low (15 fps)", "Düşük (15 fps)", "منخفض (١٥)", "Faible (15 fps)", "Niedrig (15 fps)", "Bajo (15 fps)", "कम (15 fps)"), g.fpsMode == QualityFpsMode::LOW_15)) {
+        if (ImGui::BeginMenu(L7("Frame rate", "Kare oran\u0131", "Ù…Ø¹Ø¯Ù„ Ø§Ù„Ø¥Ø·Ø§Ø±Ø§Øª", "FrÃ©quence dâ€™images", "Bildrate", "Velocidad de fotogramas", "à¤«à¤¼à¥à¤°à¥‡à¤® à¤¦à¤°"))) {
+            if (ImGui::RadioButton(L7("Low (15 fps)", "D\u00FC\u015F\u00FCk (15 fps)", "Ù…Ù†Ø®ÙØ¶ (Ù¡Ù¥)", "Faible (15 fps)", "Niedrig (15 fps)", "Bajo (15 fps)", "à¤•à¤® (15 fps)"), g.fpsMode == QualityFpsMode::LOW_15)) {
 		                applyFpsMode(QualityFpsMode::LOW_15);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("Medium (25 fps)", "Orta (25 fps)", "متوسط (٢٥)", "Moyen (25 fps)", "Mittel (25 fps)", "Medio (25 fps)", "मध्यम (25 fps)"), g.fpsMode == QualityFpsMode::MID_25)) {
+		            if (ImGui::RadioButton(L7("Medium (25 fps)", "Orta (25 fps)", "Ù…ØªÙˆØ³Ø· (Ù¢Ù¥)", "Moyen (25 fps)", "Mittel (25 fps)", "Medio (25 fps)", "à¤®à¤§à¥à¤¯à¤® (25 fps)"), g.fpsMode == QualityFpsMode::MID_25)) {
 		                applyFpsMode(QualityFpsMode::MID_25);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("High (35 fps)", "Yüksek (35 fps)", "مرتفع (٣٥)", "Élevé (35 fps)", "Hoch (35 fps)", "Alto (35 fps)", "उच्च (35 fps)"), g.fpsMode == QualityFpsMode::HIGH_35)) {
+            if (ImGui::RadioButton(L7("High (35 fps)", "Y\u00FCksek (35 fps)", "Ù…Ø±ØªÙØ¹ (Ù£Ù¥)", "Ã‰levÃ© (35 fps)", "Hoch (35 fps)", "Alto (35 fps)", "à¤‰à¤šà¥à¤š (35 fps)"), g.fpsMode == QualityFpsMode::HIGH_35)) {
 		                applyFpsMode(QualityFpsMode::HIGH_35);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("Super high (60 fps)", "Süper yüksek (60 fps)", "فائق (٦٠)", "Très élevé (60 fps)", "Sehr hoch (60 fps)", "Muy alto (60 fps)", "बहुत उच्च (60 fps)"), g.fpsMode == QualityFpsMode::SUPER_60)) {
+            if (ImGui::RadioButton(L7("Super high (60 fps)", "S\u00FCper y\u00FCksek (60 fps)", "ÙØ§Ø¦Ù‚ (Ù¦Ù )", "TrÃ¨s Ã©levÃ© (60 fps)", "Sehr hoch (60 fps)", "Muy alto (60 fps)", "à¤¬à¤¹à¥à¤¤ à¤‰à¤šà¥à¤š (60 fps)"), g.fpsMode == QualityFpsMode::SUPER_60)) {
 		                applyFpsMode(QualityFpsMode::SUPER_60);
 		                ImGui::CloseCurrentPopup();
 		            }
 		            ImGui::EndMenu();
 		        }
 
-	        // 3) Quality > (requested as texture quality radio submenu)
+	        // 3) Kalite > (doku kalite radyo alt menüsü olarak istenen)
 		        ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(FLT_MAX, FLT_MAX));
-		        if (ImGui::BeginMenu(L7("Quality", "Kalite", "الجودة", "Qualité", "Qualität", "Calidad", "गुणवत्ता"))) {
-		            if (ImGui::RadioButton(L7("Low (256x256)", "Düşük (256x256)", "منخفض (٢٥٦×٢٥٦)", "Faible (256×256)", "Niedrig (256×256)", "Bajo (256×256)", "कम (256×256)"), g.textureQuality == TextureQuality::Q256)) {
+		        if (ImGui::BeginMenu(L7("Quality", "Kalite", "Ø§Ù„Ø¬ÙˆØ¯Ø©", "QualitÃ©", "QualitÃ¤t", "Calidad", "à¤—à¥à¤£à¤µà¤¤à¥à¤¤à¤¾"))) {
+            if (ImGui::RadioButton(L7("Low (256x256)", "D\u00FC\u015F\u00FCk (256x256)", "Ù…Ù†Ø®ÙØ¶ (Ù¢Ù¥Ù¦Ã—Ù¢Ù¥Ù¦)", "Faible (256Ã—256)", "Niedrig (256Ã—256)", "Bajo (256Ã—256)", "à¤•à¤® (256Ã—256)"), g.textureQuality == TextureQuality::Q256)) {
 		                applyTextureQuality(TextureQuality::Q256);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("Medium (512x512)", "Orta (512x512)", "متوسط (٥١٢×٥١٢)", "Moyen (512×512)", "Mittel (512×512)", "Medio (512×512)", "मध्यम (512×512)"), g.textureQuality == TextureQuality::Q512)) {
+		            if (ImGui::RadioButton(L7("Medium (512x512)", "Orta (512x512)", "Ù…ØªÙˆØ³Ø· (Ù¥Ù¡Ù¢Ã—Ù¥Ù¡Ù¢)", "Moyen (512Ã—512)", "Mittel (512Ã—512)", "Medio (512Ã—512)", "à¤®à¤§à¥à¤¯à¤® (512Ã—512)"), g.textureQuality == TextureQuality::Q512)) {
 		                applyTextureQuality(TextureQuality::Q512);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("High (1024x1024)", "Yüksek (1024x1024)", "مرتفع (١٠٢٤×١٠٢٤)", "Élevé (1024×1024)", "Hoch (1024×1024)", "Alto (1024×1024)", "उच्च (1024×1024)"), g.textureQuality == TextureQuality::Q1024)) {
+            if (ImGui::RadioButton(L7("High (1024x1024)", "Y\u00FCksek (1024x1024)", "Ù…Ø±ØªÙØ¹ (Ù¡Ù Ù¢Ù¤Ã—Ù¡Ù Ù¢Ù¤)", "Ã‰levÃ© (1024Ã—1024)", "Hoch (1024Ã—1024)", "Alto (1024Ã—1024)", "à¤‰à¤šà¥à¤š (1024Ã—1024)"), g.textureQuality == TextureQuality::Q1024)) {
 		                applyTextureQuality(TextureQuality::Q1024);
 		                ImGui::CloseCurrentPopup();
 		            }
-		            if (ImGui::RadioButton(L7("Super high (2048x2048)", "Süper yüksek (2048x2048)", "فائق (٢٠٤٨×٢٠٤٨)", "Très élevé (2048×2048)", "Sehr hoch (2048×2048)", "Muy alto (2048×2048)", "बहुत उच्च (2048×2048)"), g.textureQuality == TextureQuality::Q2048)) {
+            if (ImGui::RadioButton(L7("Super high (2048x2048)", "S\u00FCper y\u00FCksek (2048x2048)", "ÙØ§Ø¦Ù‚ (Ù¢Ù Ù¤Ù¨Ã—Ù¢Ù Ù¤Ù¨)", "TrÃ¨s Ã©levÃ© (2048Ã—2048)", "Sehr hoch (2048Ã—2048)", "Muy alto (2048Ã—2048)", "à¤¬à¤¹à¥à¤¤ à¤‰à¤šà¥à¤š (2048Ã—2048)"), g.textureQuality == TextureQuality::Q2048)) {
 		                applyTextureQuality(TextureQuality::Q2048);
 		                ImGui::CloseCurrentPopup();
 		            }
@@ -1321,7 +1436,7 @@ static void renderContextMenuContents() {
 		        }
 
 		        // 4) Görselleştirmeleri seç...
-		        if (ImGui::MenuItem(L7("Select visualizations...", "Görselleştirmeleri seç...", "اختيار المرئيات...", "Sélectionner des visuels...", "Visuals auswählen...", "Seleccionar visuales...", "विज़ुअल चुनें..."))) {
+        if (ImGui::MenuItem(L7("Select visualizations...", "G\u00F6rselle\u015Ftirmeleri se\u00E7...", "Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…Ø±Ø¦ÙŠØ§Øª...", "SÃ©lectionner des visuels...", "Visuals auswÃ¤hlen...", "Seleccionar visuales...", "à¤µà¤¿à¤œà¤¼à¥à¤…à¤² à¤šà¥à¤¨à¥‡à¤‚..."))) {
 		            g.showPresetPicker = true;
 		        }
 
@@ -1329,7 +1444,7 @@ static void renderContextMenuContents() {
 
 	        // 5) Görselleştirmeyi kapat
 	        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.25f, 0.20f, 1.0f));
-	        if (ImGui::MenuItem(L7("Close visualization", "Görselleştirmeyi kapat", "إغلاق المرئيات", "Fermer le visualiseur", "Visualizer schließen", "Cerrar visualizador", "विज़ुअलाइज़र बंद करें"), nullptr)) {
+        if (ImGui::MenuItem(L7("Close visualization", "G\u00F6rselle\u015Ftirmeyi kapat", "Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„Ù…Ø±Ø¦ÙŠØ§Øª", "Fermer le visualiseur", "Visualizer schlieÃŸen", "Cerrar visualizador", "à¤µà¤¿à¤œà¤¼à¥à¤…à¤²à¤¾à¤‡à¤œà¤¼à¤° à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚"), nullptr)) {
 	            g.running = false;
 	        }
 	        ImGui::PopStyleColor();
@@ -1337,8 +1452,8 @@ static void renderContextMenuContents() {
 }
 
 static void drawContextMenuHost() {
-    // Host an invisible full-screen window so right-click on the visualizer area (no other ImGui windows)
-    // still has a place to open a context menu.
+    // Görselleştirici alanına sağ tıklandığında (başka ImGui penceresi yokken) görünmez tam ekran pencere barındır
+    // böylece bağlam menüsü açacak bir yer olur.
     ImGuiIO& io = ImGui::GetIO();
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -1352,8 +1467,8 @@ static void drawContextMenuHost() {
 
     ImGui::Begin("##AurivoContextHost", nullptr, flags);
 
-    // Robust context menu trigger: open on right-mouse release regardless of which ImGui window was hovered.
-    // This avoids edge-cases where BeginPopupContextWindow() doesn't fire due to hover/capture quirks.
+    // Sağlam bağlam menüsü tetikleyici: hangi ImGui penceresi hover olursa olsun sağ tuş bırakmada aç.
+    // Bu, BeginPopupContextWindow()'un hover/capture tuhaflıkları nedeniyle tetiklenmediği uç durumları önler.
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
         !ImGui::IsPopupOpen("AurivoContextMenu", ImGuiPopupFlags_AnyPopupId)) {
         ImGui::OpenPopup("AurivoContextMenu");
@@ -1369,8 +1484,8 @@ static void drawContextMenuHost() {
 static void drawPresetPicker() {
     if (!g.showPresetPicker) return;
 
-    // Single-window UI: the OS-level SDL window already has a title bar.
-    // Render a single, full-client-area ImGui window without decorations.
+    // Tek pencereli UI: OS düzeyindeki SDL penceresinde zaten başlık çubuğu var.
+    // Süslemeler olmadan tek, tam istemci alanlı ImGui penceresi çiz.
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
@@ -1378,26 +1493,26 @@ static void drawPresetPicker() {
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("##AurivoPickerRoot", nullptr, rootFlags);
 
-	    // Avoid duplicating the OS window title by repeating it inside the client area.
+	    // OS pencere başlığını istemci alanda tekrar ederek çoğaltma.
 		    ImGui::TextDisabled(L7(
 		        "Select visuals for auto-switch",
-		        "Otomatik geçiş için görselleri işaretleyin",
-		        "حدد المرئيات للتبديل التلقائي",
-		        "Sélectionnez des visuels pour le changement automatique",
-		        "Visuals für automatischen Wechsel auswählen",
-		        "Selecciona visuales para cambio automático",
-		        "ऑटो-स्विच के लिए विज़ुअल चुनें"
+		        "Otomatik ge\u00E7i\u015F i\u00E7in g\u00F6rselleri i\u015Faretleyin",
+		        "Ø­Ø¯Ø¯ Ø§Ù„Ù…Ø±Ø¦ÙŠØ§Øª Ù„Ù„ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ",
+		        "SÃ©lectionnez des visuels pour le changement automatique",
+		        "Visuals fÃ¼r automatischen Wechsel auswÃ¤hlen",
+		        "Selecciona visuales para cambio automÃ¡tico",
+		        "à¤‘à¤Ÿà¥‹-à¤¸à¥à¤µà¤¿à¤š à¤•à¥‡ à¤²à¤¿à¤ à¤µà¤¿à¤œà¤¼à¥à¤…à¤² à¤šà¥à¤¨à¥‡à¤‚"
 		    ));
 	    ImGui::Separator();
 
-		    ImGui::TextUnformatted(L7("Preset directory:", "Preset dizini:", "مجلد الإعدادات:", "Dossier des préréglages :", "Preset-Ordner:", "Carpeta de presets:", "प्रीसेट फ़ोल्डर:"));
+		    ImGui::TextUnformatted(L7("Preset directory:", "Preset dizini:", "Ù…Ø¬Ù„Ø¯ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª:", "Dossier des prÃ©rÃ©glages :", "Preset-Ordner:", "Carpeta de presets:", "à¤ªà¥à¤°à¥€à¤¸à¥‡à¤Ÿ à¤«à¤¼à¥‹à¤²à¥à¤¡à¤°:"));
 	    ImGui::SameLine();
 	    ImGui::TextDisabled(
-	        L7("(%d presets)", "(%d preset)", "(%d إعدادات)", "(%d préréglages)", "(%d Presets)", "(%d preajustes)", "(%d प्रीसेट)"),
+	        L7("(%d presets)", "(%d preset)", "(%d Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª)", "(%d prÃ©rÃ©glages)", "(%d Presets)", "(%d preajustes)", "(%d à¤ªà¥à¤°à¥€à¤¸à¥‡à¤Ÿ)"),
 	        (int)g.presets.size()
 	    );
 
-    // Keyboard navigation (Up/Down moves the same blue selection you get with mouse click)
+    // Klavye gezintisi (Yukarı/Aşağı, fare tıklamasıyla gelen aynı mavi seçimi hareket ettirir)
     if (ImGui::IsWindowAppearing()) {
         g.pickerNavIndex = std::clamp(g.currentPreset, 0, (int)g.presets.size() - 1);
         g.pickerNavScrollTo = true;
@@ -1423,11 +1538,11 @@ static void drawPresetPicker() {
         }
     }
 
-    // Delay control: thin "time bar" style.
+    // Gecikme kontrolü: ince "zaman çubuğu" stili.
     const float scale = (g.pickerWindow ? g.pickerDpiScale : g.dpiScale);
 	    {
 	        ImDrawList* dl = ImGui::GetWindowDrawList();
-	        const char* label = L7("Delay (s)", "Gecikme (sn)", "التأخير (ث)", "Délai (s)", "Verzögerung (s)", "Retraso (s)", "देरी (s)");
+	        const char* label = L7("Delay (s)", "Gecikme (sn)", "Ø§Ù„ØªØ£Ø®ÙŠØ± (Ø«)", "DÃ©lai (s)", "VerzÃ¶gerung (s)", "Retraso (s)", "à¤¦à¥‡à¤°à¥€ (s)");
 	        float labelW = ImGui::CalcTextSize(label).x;
 	        float availW = ImGui::GetContentRegionAvail().x;
 	        float gap = std::max(10.0f, 14.0f * scale);
@@ -1461,10 +1576,10 @@ static void drawPresetPicker() {
             }
         }
 
-        // Colors: animated hue shift (color cycle like main app's progress bar)
+        // Renkler: animasyonlu ton kayması (ana uygulamanın ilerleme çubuğu gibi renk döngüsü)
         float timeS = (float)nowMs() / 1000.0f;
         float pulse = 0.5f + 0.5f * std::sin(timeS * 2.2f);
-        float hue = std::fmod(timeS * 0.15f, 1.0f); // Slow rainbow cycle
+        float hue = std::fmod(timeS * 0.15f, 1.0f); // Yavaş gökkuşağı döngüsü
         
         auto hsvToRgb = [](float h, float s, float v) -> ImVec4 {
             float c = v * s;
@@ -1507,14 +1622,14 @@ static void drawPresetPicker() {
         dl->AddCircleFilled(ImVec2(knobX, knobY), knobR + 1.2f, hovered ? knobFill : fill);
         dl->AddCircleFilled(ImVec2(knobX, knobY), knobR, knob);
 
-        // Value text centered on the bar
+        // Değer metni çubuğun ortasında
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%d", g.delaySeconds);
         ImVec2 tw = ImGui::CalcTextSize(buf);
         ImVec2 tc((p0.x + p1.x - tw.x) * 0.5f, (p0.y + p1.y - tw.y) * 0.5f);
         dl->AddText(tc, IM_COL32(235, 235, 235, 230), buf);
 
-        // Label on the right, same line
+        // Etiket sağda, aynı satır
         ImGui::SameLine();
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap);
         ImGui::TextUnformatted(label);
@@ -1522,7 +1637,7 @@ static void drawPresetPicker() {
 
     ImGui::Separator();
 
-    // Scrollable list area (leave room for bottom buttons)
+    // Kaydırılabilir liste alanı (alt düğmeler için yer bırak)
     const float rowH = std::max(18.0f, 26.0f * scale);
     const float padX = std::max(4.0f, 8.0f * scale);
     const float gap = std::max(6.0f, 10.0f * scale);
@@ -1551,17 +1666,17 @@ static void drawPresetPicker() {
 
                 ImGui::PushID(i);
 
-                // Row rect in screen space
+                // Ekran uzayında satır dikdörtgeni
                 ImVec2 rowMin = ImGui::GetCursorScreenPos();
                 float rowW = ImGui::GetContentRegionAvail().x;
                 ImVec2 rowMax(rowMin.x + rowW, rowMin.y + rowH);
 
-                // Current/selected background
+                // Mevcut/seçili arka plan
                 if (isCurrent) {
                     dl->AddRectFilled(rowMin, rowMax, currentCol, 0.0f);
                 }
 
-                // Checkbox hitbox (A)
+                // Onay kutusu hitbox'ı (A)
                 ImVec2 cbPos(rowMin.x + padX, rowMin.y + (rowH - cbSize) * 0.5f);
                 ImGui::SetCursorScreenPos(cbPos);
                 ImGui::InvisibleButton("##chk", ImVec2(cbSize, cbSize));
@@ -1571,7 +1686,7 @@ static void drawPresetPicker() {
                     p.enabled = !p.enabled;
                 }
 
-                // Custom checkbox visuals
+                // Özel onay kutusu görseli
                 ImVec2 cbMin = ImGui::GetItemRectMin();
                 ImVec2 cbMax = ImGui::GetItemRectMax();
                 const ImU32 cbBg = p.enabled ? IM_COL32(60, 160, 220, 220) : IM_COL32(35, 35, 35, 255);
@@ -1579,7 +1694,7 @@ static void drawPresetPicker() {
                 dl->AddRectFilled(cbMin, cbMax, cbBg, 3.0f * scale);
                 dl->AddRect(cbMin, cbMax, cbBorderCol, 3.0f * scale, 0, cbBorder);
                 if (p.enabled) {
-                    // Draw a white check mark
+                    // Beyaz onay işareti çiz
                     float x0 = cbMin.x + cbSize * 0.22f;
                     float y0 = cbMin.y + cbSize * 0.55f;
                     float x1 = cbMin.x + cbSize * 0.42f;
@@ -1593,16 +1708,16 @@ static void drawPresetPicker() {
 	                if (cbHovered) {
 		                    ImGui::SetTooltip("%s", L7(
 		                        "Included in auto-switch",
-		                        "Otomatik geçişe dahil",
-		                        "مضمن في التبديل التلقائي",
+		                        "Otomatik ge\u00E7i\u015Fe dahil",
+		                        "Ù…Ø¶Ù…Ù† ÙÙŠ Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ",
 		                        "Inclus dans le changement auto",
 		                        "Im Auto-Wechsel enthalten",
-		                        "Incluido en cambio automático",
-		                        "ऑटो-स्विच में शामिल"
+		                        "Incluido en cambio automÃ¡tico",
+		                        "à¤‘à¤Ÿà¥‹-à¤¸à¥à¤µà¤¿à¤š à¤®à¥‡à¤‚ à¤¶à¤¾à¤®à¤¿à¤²"
 		                    ));
 	                }
 
-                // Selectable/text hitbox (B) - excludes checkbox region
+                // Seçilebilir/metin hitbox'ı (B) - onay kutusu bölgesini hariç tutar
                 float selX = rowMin.x + padX + cbSize + gap;
                 float selW = std::max(0.0f, rowMax.x - padX - selX);
                 ImVec2 selMin(selX, rowMin.y);
@@ -1612,20 +1727,20 @@ static void drawPresetPicker() {
                 bool rowHovered = ImGui::IsItemHovered();
                 bool rowClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
-                // Hover highlight (independent)
+                // Hover vurgusu (bağımsız)
                 if (rowHovered) {
                     dl->AddRectFilled(rowMin, rowMax, hoverCol, 0.0f);
                 }
 
                 if (rowClicked) {
-                    // Single click on text region: preview/current preset changes only.
+                    // Metin bölgesinde tek tık: yalnızca önizleme/mevcut preset değiştiğinde.
                     g.pickerNavIndex = i;
                     g.pickerNavScrollTo = true;
                     g.currentPreset = i;
                     requestPresetPreview(i);
                 }
 
-                // Text (ellipsis + tooltip)
+                // Metin (üç nokta + tooltip)
                 ImVec2 textPos(selMin.x, rowMin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f);
                 ImGui::SetCursorScreenPos(textPos);
 
@@ -1637,10 +1752,10 @@ static void drawPresetPicker() {
                     ImGui::SetTooltip("%s", p.displayName.c_str());
                 }
 
-                // Subtle row separator
+                // Hafif satır ayırıcı
                 dl->AddLine(ImVec2(rowMin.x, rowMax.y - 1.0f), ImVec2(rowMax.x, rowMax.y - 1.0f), IM_COL32(255, 255, 255, 18), 1.0f);
 
-                // Advance cursor to next row
+                // İmleci sonraki satıra ilerlet
                 ImGui::SetCursorScreenPos(ImVec2(rowMin.x, rowMax.y));
 
                 if (isNav && g.pickerNavScrollTo) {
@@ -1655,17 +1770,17 @@ static void drawPresetPicker() {
 
     ImGui::Separator();
 
-	    // Bottom buttons
-	    if (ImGui::Button(L7("All", "Hepsi", "الكل", "Tout", "Alle", "Todo", "सभी"))) {
+	    // Alt düğmeler
+	    if (ImGui::Button(L7("All", "Hepsi", "Ø§Ù„ÙƒÙ„", "Tout", "Alle", "Todo", "à¤¸à¤­à¥€"))) {
 	        for (auto& p : g.presets) p.enabled = true;
 	    }
 	    ImGui::SameLine();
-	    if (ImGui::Button(L7("None", "Hiçbiri", "لا شيء", "Aucun", "Keine", "Ninguno", "कोई नहीं"))) {
+        if (ImGui::Button(L7("None", "Hi\u00E7biri", "Ù„Ø§ Ø´ÙŠØ¡", "Aucun", "Keine", "Ninguno", "à¤•à¥‹à¤ˆ à¤¨à¤¹à¥€à¤‚"))) {
 	        for (auto& p : g.presets) p.enabled = false;
 	    }
 
-	    // Right-align "Tamam"
-	    const char* okText = L7("OK", "Tamam", "موافق", "OK", "OK", "OK", "ठीक");
+	    // "Tamam"ı sağa hizala
+	    const char* okText = L7("OK", "Tamam", "Ù…ÙˆØ§ÙÙ‚", "OK", "OK", "OK", "à¤ à¥€à¤•");
 	    float btnW = ImGui::CalcTextSize(okText).x + ImGui::GetStyle().FramePadding.x * 2;
 	    float rightX = ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - btnW);
 	    rightX = std::max(ImGui::GetCursorPosX(), rightX);
@@ -1682,7 +1797,12 @@ static bool tryCreateContextForWindow(SDL_Window* w, SDL_GLContext& outCtx) {
     auto tryCreate = [&](int major, int minor) -> bool {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+        #ifdef _WIN32
+        // projectM Windows'ta legacy GL yolları kullanır; uyumluluk eksik sembolleri önler.
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#else
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
         if (outCtx) {
             SDL_GL_DeleteContext(outCtx);
             outCtx = nullptr;
@@ -1691,7 +1811,7 @@ static bool tryCreateContextForWindow(SDL_Window* w, SDL_GLContext& outCtx) {
         return outCtx != nullptr;
     };
 
-    // Try GL 3.3 core first, then 3.0 core.
+    // Önce GL 3.3 core dene, sonra 3.0 core.
     if (!tryCreate(3, 3)) {
         std::cerr << "GL 3.3 core context failed: " << SDL_GetError() << " (falling back to 3.0)" << std::endl;
         if (!tryCreate(3, 0)) {
@@ -1705,7 +1825,7 @@ static bool tryCreateContextForWindow(SDL_Window* w, SDL_GLContext& outCtx) {
 static bool ensurePickerWindow() {
     if (g.pickerWindow && g.pickerGL && g.pickerImGui) return true;
 
-    // Backup current GL context (likely main window) and restore before returning.
+    // Mevcut GL context'ini (muhtemelen ana pencere) yedekle ve dönmeden önce geri yükle.
     SDL_Window* backupWindow = SDL_GL_GetCurrentWindow();
     SDL_GLContext backupContext = SDL_GL_GetCurrentContext();
 
@@ -1715,12 +1835,12 @@ static bool ensurePickerWindow() {
         SDL_GetWindowSize(g.window, &ww, &wh);
     }
 
-    // Mirror main window GL attributes.
+    // Ana pencere GL özniteliklerini yansıt.
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    // Clamp requested size to the usable display area and enforce it after creation.
+    // İstenen boyutu kullanılabilir ekran alanına sıkıştır ve oluşturma sonrası zorla.
     int desiredW = g.pickerWinW;
     int desiredH = g.pickerWinH;
     int displayIndex = (g.window ? SDL_GetWindowDisplayIndex(g.window) : 0);
@@ -1735,13 +1855,13 @@ static bool ensurePickerWindow() {
 
 		    g.pickerWindow = SDL_CreateWindow(
 		        L7Raw(
-		            "Select Visuals — Aurivo",
-		            "Aurivo Görselleri Seç",
-		            "اختيار المرئيات — أوريفو",
-		            "Sélectionner des visuels — Aurivo",
-		            "Visuals auswählen — Aurivo",
-		            "Seleccionar visuales — Aurivo",
-		            "विज़ुअल चुनें — Aurivo"
+		            "Select Visuals â€” Aurivo",
+            "Aurivo G\u00F6rselleri Se\u00E7",
+		            "Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…Ø±Ø¦ÙŠØ§Øª â€” Ø£ÙˆØ±ÙŠÙÙˆ",
+		            "SÃ©lectionner des visuels â€” Aurivo",
+		            "Visuals auswÃ¤hlen â€” Aurivo",
+		            "Seleccionar visuales â€” Aurivo",
+		            "à¤µà¤¿à¤œà¤¼à¥à¤…à¤² à¤šà¥à¤¨à¥‡à¤‚ â€” Aurivo"
 		        ),
 	        wx + ww + 18,
 	        wy + 42,
@@ -1754,7 +1874,7 @@ static bool ensurePickerWindow() {
         return false;
     }
 
-    // Some WMs may restore a previous size; force the requested size.
+    // Bazı WM'ler önceki boyutu geri yükleyebilir; istenen boyutu zorla.
     SDL_SetWindowSize(g.pickerWindow, desiredW, desiredH);
 
     if (!tryCreateContextForWindow(g.pickerWindow, g.pickerGL)) {
@@ -1763,16 +1883,27 @@ static bool ensurePickerWindow() {
     }
 
     SDL_GL_MakeCurrent(g.pickerWindow, g.pickerGL);
+    std::cout << "BOOT swap interval set" << std::endl;
     SDL_GL_SetSwapInterval(1);
 
-    // Load GL function pointers for this context too (safe no-op if already loaded).
+    // Bu context için de GL function pointer'larını yükle (zaten yüklüyse güvenli no-op).
+    std::cout << "BOOT GL load functions..." << std::endl;
     if (!AurivoGL_LoadFunctions()) {
+#ifdef _WIN32
+    glewExperimental = GL_TRUE;
+    GLenum glewErr = glewInit();
+    if (glewErr != GLEW_OK) {
+        std::cerr << "glewInit failed: " << (const char*)glewGetErrorString(glewErr) << std::endl;
+        return false;
+    }
+    std::cout << "BOOT glewInit ok" << std::endl;
+#endif
         std::cerr << "OpenGL function loading failed for picker window." << std::endl;
         if (backupWindow && backupContext) SDL_GL_MakeCurrent(backupWindow, backupContext);
         return false;
     }
 
-    // Create a dedicated ImGui context for the picker window.
+    // Seçici pencere için ayrı bir ImGui context oluştur.
     g.pickerImGui = ImGui::CreateContext();
     ImGui::SetCurrentContext(g.pickerImGui);
 
@@ -1799,10 +1930,10 @@ static bool ensurePickerWindow() {
         g.pickerLastDpiScale = g.pickerDpiScale;
     }
 
-    // Restore main context.
+    // Ana context'i geri yükle.
     ImGui::SetCurrentContext(g.mainImGui);
 
-    // Restore previous GL context so projectM continues rendering on the main context.
+    // Önceki GL context'i geri yükle; projectM ana context'te render etmeye devam etsin.
     if (backupWindow && backupContext) SDL_GL_MakeCurrent(backupWindow, backupContext);
     return true;
 }
@@ -1810,7 +1941,7 @@ static bool ensurePickerWindow() {
 static void destroyPickerWindow() {
     if (!g.pickerWindow) return;
 
-    // Ensure GL deletions happen on the picker context.
+    // GL silmelerinin seçici context'inde yapılmasını sağla.
     SDL_Window* backupWindow = SDL_GL_GetCurrentWindow();
     SDL_GLContext backupContext = SDL_GL_GetCurrentContext();
     if (g.pickerGL) {
@@ -1832,12 +1963,12 @@ static void destroyPickerWindow() {
     SDL_DestroyWindow(g.pickerWindow);
     g.pickerWindow = nullptr;
 
-    // Ensure we don't leave ImGui with a null current context while main window is still running.
+    // Ana pencere çalışırken ImGui'yi null mevcut context'te bırakma.
     if (g.mainImGui) {
         ImGui::SetCurrentContext(g.mainImGui);
     }
 
-    // Restore previous GL context (typically main window).
+    // Önceki GL context'i geri yükle (genelde ana pencere).
     if (backupWindow && backupContext) SDL_GL_MakeCurrent(backupWindow, backupContext);
 }
 
@@ -1847,7 +1978,7 @@ static bool initSDLVideo() {
         return false;
     }
 
-    // WM_CLASS / Wayland app_id: match main app for taskbar/dock grouping
+    // WM_CLASS / Wayland app_id: görev çubuğu/dock gruplaması için ana uygulamayla eşleştir
     const char* wmclass = std::getenv("AURIVO_VIS_WMCLASS");
     if (!wmclass || !*wmclass) wmclass = "aurivo-media-player";
     SDL_SetHint("SDL_VIDEO_X11_WMCLASS", wmclass);
@@ -1859,25 +1990,35 @@ static bool initSDLVideo() {
 }
 
 static bool initMainWindowAndGL() {
-    // Prefer modern OpenGL core profile.
-    // Fallback plan: try 3.3 core, then 3.0 core.
+    // Modern OpenGL core profilini tercih et.
+    // Yedek plan: 3.3 core dene, sonra 3.0 core.
     auto tryCreateContext = [&](int major, int minor) -> bool {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+#ifdef _WIN32
+        // projectM Windows'ta legacy GL yolları kullanır; uyumluluk eksik sembolleri önler.
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#else
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
 
         if (g.gl) {
             SDL_GL_DeleteContext(g.gl);
             g.gl = nullptr;
         }
         g.gl = SDL_GL_CreateContext(g.window);
-        return g.gl != nullptr;
+        if (!g.gl) {
+            std::cout << "BOOT GL context create failed: " << SDL_GetError() << std::endl;
+            return false;
+        }
+        std::cout << "BOOT GL context ok (" << major << "." << minor << ")" << std::endl;
+        return true;
     };
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    // Pick a sane initial size (some WMs may try to restore/maximize based on WM_CLASS).
+    // Mantıklı bir başlangıç boyutu seç (bazı WM'ler WM_CLASS'a göre geri yükle/maximize etmeye çalışabilir).
     int desiredW = g.mainPrefW;
     int desiredH = g.mainPrefH;
     SDL_Rect usable{0, 0, 0, 0};
@@ -1889,12 +2030,12 @@ static bool initMainWindowAndGL() {
 	    g.window = SDL_CreateWindow(
 	        L7Raw(
 	            "Aurivo Visualizer",
-	            "Aurivo Görselleştirici",
-	            "مرئيات أوريفو",
+            "Aurivo G\u00F6rselle\u015Ftirici",
+	            "Ù…Ø±Ø¦ÙŠØ§Øª Ø£ÙˆØ±ÙŠÙÙˆ",
 	            "Visualiseur Aurivo",
 	            "Aurivo-Visualizer",
 	            "Visualizador Aurivo",
-	            "Aurivo विज़ुअलाइज़र"
+	            "Aurivo à¤µà¤¿à¤œà¤¼à¥à¤…à¤²à¤¾à¤‡à¤œà¤¼à¤°"
 	        ),
 	        SDL_WINDOWPOS_CENTERED,
 	        SDL_WINDOWPOS_CENTERED,
@@ -1907,16 +2048,16 @@ static bool initMainWindowAndGL() {
         return false;
     }
 
-    // Force initial size (prevents "opens maximized" on some desktops).
+    // Başlangıç boyutunu zorla (bazı masaüstlerinde "maksimize açılır"ı önler).
     SDL_RestoreWindow(g.window);
     SDL_SetWindowSize(g.window, desiredW, desiredH);
     SDL_SetWindowPosition(g.window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
-    // Briefly enforce the preferred size after the window is shown, because some WMs
-    // apply their own maximize/restore after creation.
+    // Pencere gösterildikten sonra kısa süre tercih edilen boyutu zorla, çünkü bazı WM'ler
+    // oluşturma sonrası kendi maximize/geri yükle işlemlerini uygular.
     g.mainEnforceUntilMs = nowMs() + 1500ULL;
 
-    // Set window icon from env (passed by main process)
+    // Pencere ikonunu env'den ayarla (ana süreç tarafından geçirilir)
     if (const char* iconPath = std::getenv("AURIVO_VISUALIZER_ICON")) {
         SDL_Surface* iconSurf = nullptr;
 #ifdef SDL_IMAGE_MAJOR_VERSION
@@ -1932,7 +2073,7 @@ static bool initMainWindowAndGL() {
         }
     }
 
-    // Try GL 3.3 core first.
+    // Önce GL 3.3 core dene.
     if (!tryCreateContext(3, 3)) {
         std::cerr << "GL 3.3 core context failed: " << SDL_GetError() << " (falling back to 3.0)" << std::endl;
         if (!tryCreateContext(3, 0)) {
@@ -1941,24 +2082,103 @@ static bool initMainWindowAndGL() {
         }
     }
 
+    // Yeni oluşturulan context'in GL yükleyici başlatmadan önce mevcut olduğundan emin ol.
+    if (SDL_GL_MakeCurrent(g.window, g.gl) != 0) {
+        std::cerr << "SDL_GL_MakeCurrent failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    std::cout << "BOOT swap interval set" << std::endl;
     SDL_GL_SetSwapInterval(1);
 
+    std::cout << "BOOT GL load functions..." << std::endl;
     if (!AurivoGL_LoadFunctions()) {
+#ifdef _WIN32
+    glewExperimental = GL_TRUE;
+    GLenum glewErr = glewInit();
+    if (glewErr != GLEW_OK) {
+        std::cerr << "glewInit failed: " << (const char*)glewGetErrorString(glewErr) << std::endl;
+        return false;
+    }
+    std::cout << "BOOT glewInit ok" << std::endl;
+#endif
         std::cerr << "OpenGL function loading failed (SDL_GL_GetProcAddress)." << std::endl;
         return false;
     }
+
+    // projectM Windows'ta uzantı yüklemek için GLEW'e dayanabilir.
+    // Özel yükleyici başarılı olsa bile null GL girişleri olmaması için GLEW'i başlat.
+#ifdef _WIN32
+    glewExperimental = GL_TRUE;
+    GLenum glewErr = glewInit();
+    if (glewErr != GLEW_OK) {
+        std::cerr << "glewInit failed: " << (const char*)glewGetErrorString(glewErr) << std::endl;
+        return false;
+    }
+    std::cout << "BOOT glewInit ok" << std::endl;
+#endif
 
     updateDrawable();
     return true;
 }
 
+static bool looksMojibake(const char* s) {
+    if (!s || !*s) return false;
+    return std::strstr(s, "Ã") || std::strstr(s, "Â") || std::strstr(s, "Ä") ||
+           std::strstr(s, "Å") || std::strstr(s, "Ø") || std::strstr(s, "Ù") ||
+           std::strstr(s, "Ð") || std::strstr(s, "Ñ") || std::strstr(s, "â") ||
+           std::strstr(s, "à¤");
+}
+
+static std::string fixMojibakeUtf8(const char* s) {
+    if (!s) return "";
+    const size_t len = std::strlen(s);
+    std::vector<uint8_t> latinBytes;
+    latinBytes.reserve(len);
+
+    // UTF-8 -> kod noktaları çöz, sonra Latin-1 baytlarına eşle.
+    size_t i = 0;
+    while (i < len) {
+        uint32_t cp = 0;
+        if (!utf8DecodeOne(s, len, i, cp)) break;
+        if (cp <= 0xFF) latinBytes.push_back((uint8_t)cp);
+        else latinBytes.push_back((uint8_t)'?');
+    }
+
+    // Bu baytları UTF-8 olarak çözerek hedef metni geri kazan.
+    std::string out;
+    out.reserve(latinBytes.size());
+    const char* b = reinterpret_cast<const char*>(latinBytes.data());
+    const size_t blen = latinBytes.size();
+    size_t j = 0;
+    while (j < blen) {
+        uint32_t cp = 0;
+        if (!utf8DecodeOne(b, blen, j, cp)) break;
+        utf8Append(out, cp);
+    }
+    return out;
+}
+
+static const char* fixMojibakeCached(const char* s) {
+    if (!looksMojibake(s)) return s;
+    static std::unordered_map<std::string, std::string> cache;
+    const std::string key = s ? std::string(s) : std::string();
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second.c_str();
+    std::string fixed = fixMojibakeUtf8(s);
+    auto inserted = cache.emplace(key, std::move(fixed));
+    return inserted.first->second.c_str();
+}
+
 static bool initProjectM() {
+    std::cout << "[projectM] create..." << std::endl;
     g.pm = projectm_create();
     if (!g.pm) {
         std::cerr << "projectm_create failed" << std::endl;
         return false;
     }
 
+    std::cout << "[projectM] create ok" << std::endl;
     g.pmMaxSamplesPerChannel = projectm_pcm_get_max_samples();
     std::cout << "[Audio] projectM max samples/channel: " << g.pmMaxSamplesPerChannel << std::endl;
 
@@ -1983,7 +2203,7 @@ static bool initImGui() {
 
     ImGui_ImplSDL2_InitForOpenGL(g.window, g.gl);
 
-    // If we successfully created >=3.3, use GLSL 330; otherwise GLSL 130 (for GL 3.0).
+    // >=3.3 başarıyla oluşturulduysa GLSL 330 kullan; aksi halde GLSL 130 (GL 3.0 için).
     int major = 0, minor = 0;
     SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &major);
     SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, &minor);
@@ -1992,9 +2212,16 @@ static bool initImGui() {
 
     auto fp = findInterFontPath();
     if (!fp) {
-        std::cerr << "Inter-Regular.ttf bulunamadı. Beklenen yol: assets/fonts/Inter-Regular.ttf" << std::endl;
-        g.fontPath = "";
-        io.Fonts->AddFontDefault();
+        // Windows'ta tam glif kapsamı sağlamak için sistem UI fontlarına yedekle.
+        auto sys = findWindowsUiFontPath();
+        if (sys) {
+            std::cout << "[Font] Inter-Regular.ttf not found; using system font: " << *sys << std::endl;
+            g.fontPath = *sys;
+        } else {
+            std::cerr << "Inter-Regular.ttf bulunamad\u0131. Beklenen yol: assets/fonts/Inter-Regular.ttf" << std::endl;
+            g.fontPath = "";
+            io.Fonts->AddFontDefault();
+        }
     } else {
         g.fontPath = *fp;
     }
@@ -2009,6 +2236,7 @@ static bool initImGui() {
 }
 
 static void shutdownAll() {
+    std::cout << "[Shutdown] begin" << std::endl;
     if (g.pm) {
         projectm_destroy(g.pm);
         g.pm = nullptr;
@@ -2030,6 +2258,7 @@ static void shutdownAll() {
     }
 
     SDL_Quit();
+    std::cout << "[Shutdown] done" << std::endl;
 }
 
 static Uint32 getEventWindowId(const SDL_Event& e) {
@@ -2058,10 +2287,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Load picker settings AFTER scanning presets so we can map saved paths back to indices.
+    // Preset taraması sonrası seçici ayarlarını yükle; böylece kaydedilen yolları indekslere eşleyebiliriz.
     loadPresetPickerSettings();
 
-    // If the parent app provides a default size, prefer it (open at this size every time).
+    // Üst uygulama varsayılan boyut sağlıyorsa onu tercih et (her seferinde bu boyutta aç).
     if (const char* w = std::getenv("AURIVO_VIS_MAIN_W")) {
         try {
             int v = std::stoi(std::string(w));
@@ -2078,20 +2307,25 @@ int main(int argc, char* argv[]) {
     }
 
     if (!initSDLVideo()) return 1;
+    std::cout << "BOOT initSDLVideo ok" << std::endl;
     if (!initMainWindowAndGL()) {
         shutdownAll();
         return 1;
     }
+    std::cout << "BOOT initMainWindowAndGL ok" << std::endl;
+    std::cout << "BOOT initProjectM enter" << std::endl;
     if (!initProjectM()) {
         shutdownAll();
         return 1;
     }
+    std::cout << "BOOT initProjectM ok" << std::endl;
     if (!initImGui()) {
         shutdownAll();
         return 1;
     }
 
-    // Debug overlay/logging (optional)
+    std::cout << "BOOT initImGui ok" << std::endl;
+    // Hata ayıklama overlay/loglama (isteğe bağlı)
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--debug") {
             g.debugOverlay = true;
@@ -2102,14 +2336,22 @@ int main(int argc, char* argv[]) {
         if (std::string(dbg) == "1") g.debugOverlay = true;
     }
 
-    // Audio input policy: ONLY from app PCM via stdin. No capture, no fallback.
+    // Ses giriş politikası: SADECE stdin üzerinden uygulama PCM'i. yakalama yok, yedek yok.
     if (!initStdinNonBlocking()) {
         std::cerr << "[Audio] stdin non-blocking setup failed; PCM feed may stutter." << std::endl;
     } else {
+#ifdef _WIN32
+        if (!g.stdinIsPipe) {
+            std::cout << "[Audio] stdin is not a pipe; PCM input disabled (no capture)" << std::endl;
+        } else {
+            std::cout << "[Audio] ✓ projectM input = aurivo_pcm (stdin only, NO mic/capture)" << std::endl;
+        }
+#else
         std::cout << "[Audio] ✓ projectM input = aurivo_pcm (stdin only, NO mic/capture)" << std::endl;
+#endif
     }
 
-    // Ensure main GL context is current before loading the first preset.
+    // İlk preset yüklenmeden önce ana GL context'in mevcut olduğundan emin ol.
     SDL_GL_MakeCurrent(g.window, g.gl);
     g.currentPreset = std::clamp(g.currentPreset, 0, (int)g.presets.size() - 1);
     applyPresetByIndexNow(g.currentPreset);
@@ -2119,14 +2361,14 @@ int main(int argc, char* argv[]) {
     while (g.running) {
         uint64_t frameStartMs = nowMs();
 
-        // Always start the frame on the main GL context.
+        // Kareyi her zaman ana GL context'te başlat.
         SDL_GL_MakeCurrent(g.window, g.gl);
 
-        // Pump any incoming PCM (non-blocking) and feed projectM.
+        // Gelen PCM'i (bloklamadan) al ve projectM'e besle.
         pumpPcmFromStdin();
         feedSilenceIfStale(frameStartMs);
         while (SDL_PollEvent(&e)) {
-            // Route events to the correct ImGui context depending on which SDL window they belong to.
+            // Olayları, ait oldukları SDL penceresine göre doğru ImGui context'ine yönlendir.
             Uint32 wid = getEventWindowId(e);
             if (g.pickerWindow && wid != 0 && wid == SDL_GetWindowID(g.pickerWindow) && g.pickerImGui) {
                 ImGui::SetCurrentContext(g.pickerImGui);
@@ -2138,16 +2380,18 @@ int main(int argc, char* argv[]) {
             }
 
             if (e.type == SDL_QUIT) {
+                std::cout << "[Shutdown] SDL_QUIT received" << std::endl;
                 g.running = false;
             } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_CLOSE) {
-                // Close the picker window only if it was the picker; otherwise quit.
+                // Seçici pencere ise kapat; değilse çık.
                 if (g.pickerWindow && e.window.windowID == SDL_GetWindowID(g.pickerWindow)) {
                     g.showPresetPicker = false;
                 } else {
+                    std::cout << "[Shutdown] main window close requested" << std::endl;
                     g.running = false;
                 }
             } else if (e.type == SDL_MOUSEBUTTONDOWN) {
-                // Double-click on the main visualizer toggles fullscreen.
+                // Ana görselleştiricide çift tık tam ekranı aç/kapatır.
                 if (g.window && e.button.windowID == SDL_GetWindowID(g.window) && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2) {
                     ImGui::SetCurrentContext(g.mainImGui);
                     ImGuiIO& io = ImGui::GetIO();
@@ -2157,7 +2401,7 @@ int main(int argc, char* argv[]) {
                     }
                 }
             } else if (e.type == SDL_WINDOWEVENT) {
-                // Track user resize of the main window (persist only when not maximized/fullscreen)
+                // Ana pencerenin kullanıcı yeniden boyutlandırmasını takip et (sadece maximize/tam ekran değilken kalıcı))
                 if (g.window && e.window.windowID == SDL_GetWindowID(g.window)) {
                     if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || e.window.event == SDL_WINDOWEVENT_RESIZED) {
                         const Uint32 flags = SDL_GetWindowFlags(g.window);
@@ -2174,14 +2418,14 @@ int main(int argc, char* argv[]) {
 
         enforceMainWindowInitialSize();
 
-        // Persist picker settings on close (Tamam / ESC / window close button).
+        // Seçici ayarlarını kapanışta kalıcı yap (Tamam / ESC / pencere kapat düğmesi).
         static bool wasPickerOpen = false;
         if (wasPickerOpen && !g.showPresetPicker) {
             savePresetPickerSettings();
         }
         wasPickerOpen = g.showPresetPicker;
 
-        // Create/destroy picker window based on state.
+        // Duruma göre seçici penceresini oluştur/yok et.
         if (g.showPresetPicker) {
             if (!ensurePickerWindow()) {
                 std::cerr << "Failed to open preset picker window." << std::endl;
@@ -2193,7 +2437,7 @@ int main(int argc, char* argv[]) {
 
         updateDrawable();
 
-        // HiDPI handling for ImGui: rescale style + reload fonts when the fb/win scale changes.
+        // ImGui için HiDPI: fb/win ölçek değiştiğinde stili ölçekle + fontları yeniden yükle.
         if (!g.fontPath.empty() && std::fabs(g.dpiScale - g.lastDpiScale) > 0.001f) {
             rescaleImGui(g.dpiScale);
             g.lastDpiScale = g.dpiScale;
@@ -2201,25 +2445,25 @@ int main(int argc, char* argv[]) {
 
         pumpAutoPresetSwitch();
 
-        // Apply any pending preset changes safely on the main GL context.
+        // Bekleyen preset değişikliklerini ana GL context'te güvenle uygula.
         flushPendingPresetApply();
 
-        // Start ImGui frame
+        // Başlat ImGui frame
         ImGui::SetCurrentContext(g.mainImGui);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // Keyboard shortcuts (respect ImGui capture)
+        // Klavye kısayolları (ImGui capture'ı dikkate al)
         ImGuiIO& io = ImGui::GetIO();
         if (!io.WantCaptureKeyboard) {
             const Uint8* keystate = SDL_GetKeyboardState(nullptr);
             if (keystate[SDL_SCANCODE_ESCAPE]) {
-                // If picker open, close it; otherwise exit.
+                // Seçici açıksa kapat; değilse çık.
                 if (g.showPresetPicker) g.showPresetPicker = false;
                 else g.running = false;
             }
-            // Toggle fullscreen on key press (edge-triggered)
+            // Tuş basımında tam ekranı aç/kapat (kenar tetiklemeli)
             static bool lastF = false;
             bool curF = keystate[SDL_SCANCODE_F] != 0;
             if (curF && !lastF) {
@@ -2231,7 +2475,7 @@ int main(int argc, char* argv[]) {
 
         drawContextMenuHost();
 
-        // Debug overlay for audio status (no capture; stdin only)
+        // Ses durumu için hata ayıklama overlay'i (capture yok; sadece stdin)
         if (g.debugOverlay) {
             ImGui::SetNextWindowBgAlpha(0.35f);
             ImGui::SetNextWindowPos(ImVec2(12.0f, 12.0f), ImGuiCond_Always);
@@ -2247,7 +2491,7 @@ int main(int argc, char* argv[]) {
             ImGui::End();
         }
 
-        // Render projectM
+        // projectM'i render et
         glViewport(0, 0, g.fbW, g.fbH);
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -2259,7 +2503,7 @@ int main(int argc, char* argv[]) {
             projectm_opengl_render_frame(g.pm);
         }
 
-        // Render ImGui overlay
+        // ImGui overlay'ini render et
         glViewport(0, 0, g.fbW, g.fbH);
         glDisable(GL_DEPTH_TEST);
         ImGui::Render();
@@ -2267,7 +2511,7 @@ int main(int argc, char* argv[]) {
 
         SDL_GL_SwapWindow(g.window);
 
-        // Render picker window in its own GL context + ImGui context.
+        // Seçici pencereyi kendi GL context'i + ImGui context'i içinde render et.
         if (g.pickerWindow && g.pickerGL && g.pickerImGui) {
             SDL_GL_MakeCurrent(g.pickerWindow, g.pickerGL);
             ImGui::SetCurrentContext(g.pickerImGui);
@@ -2291,13 +2535,13 @@ int main(int argc, char* argv[]) {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             SDL_GL_SwapWindow(g.pickerWindow);
 
-            // Restore main context
+            // Ana context'i geri yükle
             ImGui::SetCurrentContext(g.mainImGui);
             SDL_GL_MakeCurrent(g.window, g.gl);
         }
 
-        // Simple frame cap based on selected target fps.
-        // When there's no PCM (paused/stop/IPC disconnected), reduce CPU by capping FPS.
+        // Seçilen hedef FPS'e göre basit kare limiti.
+        // PCM yokken (pause/stop/IPC kopuk), FPS'i düşürerek CPU'yu azalt.
         int effectiveFps = g.targetFps;
         if (g.audioStale && !g.showPresetPicker) {
             effectiveFps = std::min(effectiveFps, 30);
@@ -2314,3 +2558,11 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
+
+
+
+
+
+
+
+

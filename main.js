@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// MPRIS (Linux Media Player Remote Interfacing Specification)
+// MPRIS (Linux Medya Oynatıcı Uzaktan Arayüz Spesifikasyonu)
 let Player = null;
 try {
     Player = require('mpris-service');
@@ -21,7 +21,7 @@ for (const stream of [process.stdout, process.stderr]) {
     });
 }
 
-// Global uncaught exception handler - MPRIS/dbus hataları için
+// Global yakalanmamış istisna işleyicisi - MPRIS/dbus hataları için
 process.on('uncaughtException', (error) => {
     // EPIPE hataları - dbus bağlantısı koptuğunda oluşur
     if (error.code === 'EPIPE' ||
@@ -48,14 +48,18 @@ function safeStdoutLine(line) {
     }
 }
 
-// GNOME/Wayland üst bar & dock ikon eşleştirmesi için (desktop entry ile match)
+// GNOME/Wayland üst bar & dock ikon eşleştirmesi için (desktop entry ile eşleşme)
 const LINUX_WM_CLASS = 'aurivo-media-player';
-if (process.platform === 'linux') {
-    app.commandLine.appendSwitch('class', LINUX_WM_CLASS);
-}
+if (app && app.commandLine) {
+    if (process.platform === 'linux') {
+        app.commandLine.appendSwitch('class', LINUX_WM_CLASS);
+    }
 
-// FIX: Disable Chromium's MediaSessionService to prevent duplicate players for WebViews
-app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
+    // DÜZELTME: WebView'larda çift medya oynatıcıyı önlemek için Chromium MediaSessionService devre dışı
+    app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
+} else {
+    console.warn('[Startup] app.commandLine not available');
+}
 
 // Windows 10/11: taskbar/dock ikon eşleştirmesi ve gruplama
 if (process.platform === 'win32') {
@@ -74,7 +78,7 @@ function prependToProcessPath(dir) {
 function ensureWindowsRuntimePaths() {
     if (process.platform !== 'win32') return;
 
-    // PATH: make sure bundled native deps / ffmpeg are discoverable for child processes & DLL loader.
+    // PATH: paketlenmiş native bağımlılıkların / ffmpeg'in alt süreç ve DLL yükleyici tarafından bulunabildiğinden emin ol.
     try {
         if (process.resourcesPath) {
             prependToProcessPath(path.join(process.resourcesPath, 'bin'));
@@ -82,7 +86,7 @@ function ensureWindowsRuntimePaths() {
             prependToProcessPath(path.join(process.resourcesPath, 'native-dist'));
         }
 
-        // Dev fallbacks
+        // Geliştirici yedekleri
         prependToProcessPath(path.join(__dirname, 'third_party', 'ffmpeg'));
         prependToProcessPath(path.join(__dirname, 'native', 'build', 'Release'));
         prependToProcessPath(path.join(__dirname, 'native-dist'));
@@ -142,7 +146,7 @@ function logWindowsRuntimeDepsOnce(context = '') {
     }
 }
 // ============================================
-// WAYLAND / X11 OTOMATIK ALGILAMA
+// WAYLAND / X11 OTOMATİK ALGILAMA
 // ============================================
 function detectDisplayServer() {
     // Linux dışı sistemlerde atlama
@@ -166,7 +170,7 @@ function detectDisplayServer() {
             );
             app.commandLine.appendSwitch(name, [...set].join(','));
         } catch {
-            // best-effort
+            // en iyi çaba
         }
     };
 
@@ -198,7 +202,7 @@ function detectDisplayServer() {
     }
 
     if (!forceSoftware) {
-        // GPU blacklist'e takılan makinelerde siyah pencere olabiliyor
+        // GPU kara listesine takılan makinelerde siyah pencere olabiliyor
         app.commandLine.appendSwitch('ignore-gpu-blocklist');
     }
 
@@ -211,23 +215,23 @@ function detectDisplayServer() {
         app.commandLine.appendSwitch('ignore-gpu-blocklist');
     }
 
-    // Genel GPU ayarları (performans için) - app hazır olduğunda uygula
+    // Genel GPU ayarları (performans için) - uygulama hazır olduğunda uygula
     if (app && app.commandLine) {
         app.commandLine.appendSwitch('enable-gpu-rasterization');
         app.commandLine.appendSwitch('enable-zero-copy');
 
-        // Font rendering iyileştirmeleri - Wayland/X11 uyumluluğu
+        // Yazı tipi oluşturma iyileştirmeleri - Wayland/X11 uyumluluğu
         app.commandLine.appendSwitch('disable-font-subpixel-positioning');
         app.commandLine.appendSwitch('enable-font-antialiasing');
         app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
-        // Context menu düzeltmeleri
+        // Bağlam menüsü düzeltmeleri
         app.commandLine.appendSwitch('disable-gpu-sandbox');
     }
 }
 
 // ============================================================
-// GPU FAILSAFE (ALL PLATFORMS)
+// GPU GÜVENLİ MOD (TÜM PLATFORMLAR)
 // ============================================================
 function installGpuFailsafe() {
     const alreadySoftware = process.env.AURIVO_SOFTWARE_RENDER === '1' || process.env.AURIVO_SOFTWARE_RENDER === 'true';
@@ -252,10 +256,10 @@ function installGpuFailsafe() {
     });
 }
 
-// Uygulama başlamadan önce display server'ı algıla
+// Uygulama başlamadan önce görüntü sunucusunu algıla
 detectDisplayServer();
 installGpuFailsafe();
-// node-id3'yı yükle (ID3 tag okumak için)
+// node-id3'yı yükle (ID3 etiketi okumak için)
 let NodeID3 = null;
 try {
     NodeID3 = require('node-id3');
@@ -264,7 +268,7 @@ try {
     console.error('node-id3 yüklenemedi:', e.message);
 }
 
-// C++ Audio Engine (lazy init - Windows'ta eksik DLL durumunda UI'nin donmaması için)
+// C++ Ses Motoru (tembel başlatma - Windows'ta eksik DLL durumunda UI'nin donmaması için)
 let audioEngine = null;
 let isNativeAudioAvailable = false;
 let audioEngineModule = null;
@@ -313,12 +317,12 @@ let mainWindow;
 let tray = null;
 let mprisPlayer = null;
 
-// Download state (Aurivo-Dawlod / yt-dlp)
+// İndirme durumu (Aurivo-Dawlod / yt-dlp)
 let downloadSeq = 0;
 const activeDownloads = new Map(); // id -> { proc, killTimer }
 
 function getResourcePath(relPath) {
-    // Dev: direct from repo
+    // Dev: doğrudan repo içinden
     // Prod: app.asar/index -> resources/
     if (app.isPackaged) {
         return path.join(process.resourcesPath, relPath);
@@ -327,8 +331,8 @@ function getResourcePath(relPath) {
 }
 
 function getAppFilePath(relPath) {
-    // Works for files bundled inside app.asar (e.g. locales/*.json)
-    // Dev: app.getAppPath() points to project root; Prod: points to .../resources/app.asar
+    // app.asar içindeki paketlenmiş dosyalar için çalışır (örn. locales/*.json)
+    // Dev: app.getAppPath() proje kökünü gösterir; Prod: .../resources/app.asar konumunu gösterir
     return path.join(app.getAppPath(), relPath);
 }
 
@@ -336,16 +340,16 @@ function getLocaleCandidatePaths(lang) {
     const normalized = normalizeUiLang(lang) || 'en';
     const filename = `${normalized}.json`;
 
-    // Prefer app.asar (packaged) / project root (dev)
+    // Tercih: app.asar (paket) / proje kökü (dev)
     const candidates = [
         getAppFilePath(path.join('locales', filename)),
         path.join(__dirname, 'locales', filename),
-        // Some packaging setups may place app.asar under resourcesPath explicitly
+        // Bazı paketleme düzenlerinde app.asar açıkça resourcesPath altında olabilir
         path.join(process.resourcesPath || '', 'app.asar', 'locales', filename),
         path.join(process.resourcesPath || '', 'locales', filename)
     ];
 
-    // De-dup
+    // Tekilleştir
     return [...new Set(candidates.filter(Boolean))];
 }
 
@@ -355,7 +359,7 @@ function readFirstJsonSync(paths) {
             const json = JSON.parse(fs.readFileSync(p, 'utf8'));
             return json || {};
         } catch {
-            // try next
+            // sonrakini dene
         }
     }
     return null;
@@ -368,7 +372,7 @@ async function readFirstJson(paths) {
             const json = JSON.parse(data);
             return json || {};
         } catch {
-            // try next
+            // sonrakini dene
         }
     }
     return null;
@@ -384,7 +388,7 @@ function getPythonCandidates() {
     const envPython = process.env.AURIVO_PYTHON;
     if (envPython) out.push(envPython);
 
-    // Dev: repo-local venv first
+    // Dev: önce repo-yerel venv
     if (!app.isPackaged) {
         if (process.platform === 'win32') {
             out.push(path.join(__dirname, '.venv', 'Scripts', 'python.exe'));
@@ -458,9 +462,9 @@ function getSettingsPath() {
 }
 
 // ============================================================
-// UI I18N (Main Process)
-// - Renderer stores selected language in settings.json: ui.language
-// - Fallback to app.getLocale(), then English
+// UI I18N (Ana İşlem)
+// - Renderer seçilen dili settings.json'a yazar: ui.language
+// - Yedek: app.getLocale(), sonra İngilizce
 // ============================================================
 const UI_SUPPORTED_LANGS = new Set(['tr', 'en', 'ar', 'fr', 'de', 'es', 'hi']);
 const uiMessagesCache = new Map(); // lang -> messages
@@ -497,7 +501,7 @@ function getUiLanguageSync() {
         const saved = normalizeUiLang(parsed?.ui?.language);
         if (saved) return saved;
     } catch {
-        // ignore
+        // yoksay
     }
 
     return normalizeUiLang(app.getLocale()) || 'en';
@@ -591,7 +595,7 @@ function installAppMenu() {
             submenu: [
                 {
                     label: 'aurivo.app',
-                    click: () => shell.openExternal('https://aurivo.app').catch(() => { /* ignore */ })
+                    click: () => shell.openExternal('https://aurivo.app').catch(() => { /* yoksay */ })
                 }
             ]
         }
@@ -609,7 +613,7 @@ async function writeJsonFileAtomic(filePath, obj) {
     try {
         await fs.promises.mkdir(dir, { recursive: true });
     } catch {
-        // ignore
+        // yoksay
     }
 
     const tmpPath = `${filePath}.tmp`;
@@ -619,9 +623,9 @@ async function writeJsonFileAtomic(filePath, obj) {
     try {
         await fs.promises.rename(tmpPath, filePath);
     } catch (e) {
-        // Windows'ta hedef dosya varsa rename bazen hata verebilir.
+        // Windows'ta hedef dosya varsa yeniden adlandırma bazen hata verebilir.
         if (e && (e.code === 'EEXIST' || e.code === 'EPERM' || e.code === 'EACCES')) {
-            await fs.promises.unlink(filePath).catch(() => { /* ignore */ });
+            await fs.promises.unlink(filePath).catch(() => { /* yoksay */ });
             await fs.promises.rename(tmpPath, filePath);
             return;
         }
@@ -752,7 +756,7 @@ function createWindow() {
     mainWindow.center();
     mainWindow.focus();
 
-    // Renderer loglarını terminale düşür (çapraz geçiş gibi UI-side debug için)
+    // Renderer loglarını terminale düşür (çapraz geçiş gibi UI tarafı hata ayıklama için)
     mainWindow.webContents.on('console-message', (_event, _level, message, line, sourceId) => {
         // sourceId boş olabiliyor
         const src = sourceId ? String(sourceId).split('/').slice(-1)[0] : 'renderer';
@@ -766,7 +770,7 @@ function createWindow() {
         hasEverBeenShown = true;
     });
 
-    // Wayland/GPU sorunlarında ready-to-show tetiklenmezse fallback
+    // Wayland/GPU sorunlarında ready-to-show tetiklenmezse yedek
     mainWindow.webContents.once('did-finish-load', () => {
         if (!mainWindow.isVisible()) {
             mainWindow.show();
@@ -781,7 +785,7 @@ function createWindow() {
             }
         }, 1500);
 
-        // Native audio init'i UI yüklendikten sonra dene (başarısız olursa uygulama akışı bozulmasın)
+        // Native ses başlatmayı UI yüklendikten sonra dene (başarısız olursa uygulama akışı bozulmasın)
         setTimeout(() => {
             try {
                 const success = initNativeAudioEngineSafe();
@@ -869,7 +873,7 @@ function createTray() {
 }
 
 // ============================================
-// MPRIS (Linux Media Player Integration)
+// MPRIS (Linux Media Player Entegrasyonu)
 // ============================================
 function createMPRIS() {
     if (!Player || process.platform !== 'linux') {
@@ -887,7 +891,7 @@ function createMPRIS() {
             supportedInterfaces: ['player']
         });
 
-        // Playback yeteneklerini ayarla
+        // Oynatma yeteneklerini ayarla
         mprisPlayer.canSeek = true;
         mprisPlayer.canControl = true;
         mprisPlayer.canPlay = true;
@@ -895,7 +899,7 @@ function createMPRIS() {
         mprisPlayer.canGoNext = true;
         mprisPlayer.canGoPrevious = true;
 
-        // Playback kontrollerini bağla
+        // Oynatma kontrollerini bağla
         mprisPlayer.on('play', () => {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('media-control', 'play-pause');
@@ -948,7 +952,7 @@ function createMPRIS() {
 
         // getPosition desteği (MPRIS tarafından çağrılır)
         mprisPlayer.getPosition = () => {
-            // Çalıyorsa, son güncellemeden bu yana geçen süreyi ekle (Extrapolation)
+            // Çalıyorsa, son güncellemeden bu yana geçen süreyi ekle (Ekstrapolasyon)
             if (mprisPlayer.playbackStatus === Player.PLAYBACK_STATUS_PLAYING && mprisPlayer._lastUpdateHRTime) {
                 const elapsed = process.hrtime(mprisPlayer._lastUpdateHRTime);
                 const elapsedMicros = (elapsed[0] * 1000000) + Math.floor(elapsed[1] / 1000);
@@ -996,7 +1000,7 @@ function updateMPRISMetadata(metadata) {
         console.log('MPRIS metadata güncellendi:', metadata.title, 'duration:', metadata.duration.toFixed(1), 's, position:', metadata.position.toFixed(1), 's');
     } catch (e) {
         // D-Bus bağlantı hataları - sessizce yoksay (normal durum)
-        // EPIPE, stream closed gibi hatalar dbus bağlantısı hazır olmadığında oluşur
+        // EPIPE, akış kapalı gibi hatalar dbus bağlantısı hazır olmadığında oluşur
         const ignoredErrors = ['EPIPE', 'stream is closed', 'Cannot send message'];
         const shouldIgnore = ignoredErrors.some(err =>
             e.code === err || (e.message && e.message.includes(err))
@@ -1142,7 +1146,7 @@ function createSoundEffectsWindow() {
             contextIsolation: true,
             sandbox: false
         },
-        frame: false, // Özel başlık çubuğu için frameless
+        frame: false, // Özel başlık çubuğu için çerçevesiz
         title: 'Ses Efektleri — Aurivo Medya Player',
         show: false
     });
@@ -1173,7 +1177,7 @@ function createEQPresetsWindow() {
         return;
     }
 
-    // Parent: ses efektleri penceresini bul; yoksa ana pencereyi kullan
+    // Üst pencere: ses efektleri penceresini bul; yoksa ana pencereyi kullan
     let parentWindow = null;
     if (soundEffectsWindow && !soundEffectsWindow.isDestroyed()) {
         parentWindow = soundEffectsWindow;
@@ -1274,16 +1278,18 @@ ipcMain.handle('eqPresets:getFeaturedList', () => {
 });
 
 // ============================================
-// PROJECTM VISUALIZER (NATIVE EXECUTABLE)
+// PROJECTM GÖRSELLEŞTİRİCİ (NATIVE ÇALIŞTIRILABİLİR)
 // ============================================
 let visualizerProc = null;
 let visualizerFeedTimer = null;
+let visualizerFeedStats = null;
 
 function stopVisualizerFeed() {
     if (visualizerFeedTimer) {
         clearInterval(visualizerFeedTimer);
         visualizerFeedTimer = null;
     }
+    visualizerFeedStats = null;
 }
 
 function startVisualizerFeed() {
@@ -1295,6 +1301,16 @@ function startVisualizerFeed() {
     }
 
     const requestedFramesPerChannel = 1024;
+    visualizerFeedStats = {
+        startedAt: Date.now(),
+        lastLogAt: 0,
+        packets: 0,
+        bytes: 0,
+        drops: 0,
+        noData: 0,
+        backpressure: 0,
+        firstWriteOk: false
+    };
 
     visualizerFeedTimer = setInterval(() => {
         try {
@@ -1302,10 +1318,17 @@ function startVisualizerFeed() {
                 stopVisualizerFeed();
                 return;
             }
+            if (!visualizerProc.stdin.writable) {
+                stopVisualizerFeed();
+                return;
+            }
 
-            // Native audio engine'den interleaved float PCM al
+            // Native ses motorundan kanallar arası (interleaved) float PCM al
             const pcmRes = audioEngine.getPCMData(requestedFramesPerChannel);
-            if (!pcmRes || !pcmRes.data || pcmRes.data.length === 0) return;
+            if (!pcmRes || !pcmRes.data || pcmRes.data.length === 0) {
+                if (visualizerFeedStats) visualizerFeedStats.noData++;
+                return;
+            }
 
             let channels = Number(pcmRes.channels) || 0;
             if (channels <= 0) return;
@@ -1313,7 +1336,10 @@ function startVisualizerFeed() {
 
             let floatArray = (pcmRes.data instanceof Float32Array) ? pcmRes.data : Float32Array.from(pcmRes.data);
             const countPerChannel = Math.floor(floatArray.length / channels);
-            if (countPerChannel <= 0) return;
+            if (countPerChannel <= 0) {
+                if (visualizerFeedStats) visualizerFeedStats.noData++;
+                return;
+            }
             const floatCount = countPerChannel * channels;
             if (floatCount !== floatArray.length) {
                 floatArray = floatArray.subarray(0, floatCount);
@@ -1326,21 +1352,47 @@ function startVisualizerFeed() {
 
             const payload = Buffer.from(floatArray.buffer, floatArray.byteOffset, floatCount * 4);
 
-            // Backpressure olursa frame atla.
+            // Geri basınç olursa kare atla.
             const ok1 = visualizerProc.stdin.write(header);
             const ok2 = visualizerProc.stdin.write(payload);
             if (!ok1 || !ok2) {
                 // Drain beklemeyelim; bir sonraki tick'te tekrar deneriz.
+                if (visualizerFeedStats) visualizerFeedStats.backpressure++;
+            }
+            if (visualizerFeedStats) {
+                visualizerFeedStats.packets++;
+                visualizerFeedStats.bytes += header.length + payload.length;
+                if (!visualizerFeedStats.firstWriteOk) {
+                    visualizerFeedStats.firstWriteOk = true;
+                    console.log('[Visualizer] PCM pipe active (first write ok)');
+                }
             }
         } catch (e) {
-            // best-effort
+            // en iyi çaba
+            if (visualizerFeedStats) visualizerFeedStats.drops++;
+        }
+
+        if (visualizerFeedStats) {
+            const now = Date.now();
+            if (now - visualizerFeedStats.lastLogAt > 5000) {
+                visualizerFeedStats.lastLogAt = now;
+                const up = Math.max(1, Math.round((now - visualizerFeedStats.startedAt) / 1000));
+                console.log('[Visualizer] PCM stats', {
+                    up_s: up,
+                    packets: visualizerFeedStats.packets,
+                    bytes: visualizerFeedStats.bytes,
+                    backpressure: visualizerFeedStats.backpressure,
+                    noData: visualizerFeedStats.noData,
+                    drops: visualizerFeedStats.drops
+                });
+            }
         }
     }, 33);
 }
 
 function isDevMode() {
-    // In dev (electron . / npm start), we want to prefer freshly-built native binaries from build-visualizer.
-    // In packaged builds, use native-dist.
+    // Dev modda (electron . / npm start), build-visualizer içindeki yeni derlenmiş native binary'leri tercih ederiz.
+    // Paketli sürümlerde native-dist kullanılır.
     return !app.isPackaged || process.env.AURIVO_DEV === '1' || process.argv.includes('--dev');
 }
 
@@ -1349,7 +1401,7 @@ function pickFirstExistingPath(paths) {
         try {
             if (p && fs.existsSync(p)) return p;
         } catch {
-            // ignore
+            // yoksay
         }
     }
     return '';
@@ -1359,9 +1411,9 @@ function getProjectMPresetsPath() {
     const candidates = [];
 
     if (app.isPackaged) {
-        // Preferred packaged path (explicitly mapped by extraResources)
+        // Tercih edilen paket yolu (extraResources ile açıkça eşlenmiş)
         candidates.push(path.join(process.resourcesPath, 'visualizer-presets'));
-        // Fallback: if entire third_party is shipped
+        // Yedek: third_party tamamen taşınmışsa
         candidates.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'presets'));
     } else {
         candidates.push(getResourcePath(path.join('third_party', 'projectm', 'presets')));
@@ -1373,7 +1425,7 @@ function getProjectMPresetsPath() {
 function getVisualizerExecutableCandidates() {
     const out = [];
 
-    // Packaged (Windows): prefer native-dist; fallback to shipped third_party (if it contains a binary)
+    // Paketlenmiş (Windows): native-dist tercih edilir; gerekirse taşınmış third_party'ye düş (binary içeriyorsa)
     if (app.isPackaged && process.platform === 'win32') {
         out.push(path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe'));
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'aurivo-projectm-visualizer.exe'));
@@ -1385,16 +1437,16 @@ function getVisualizerExecutableCandidates() {
         ? 'aurivo-projectm-visualizer.exe'
         : 'aurivo-projectm-visualizer';
 
-    // Packaged (Linux/Mac): resources/native-dist (extraResources)
+    // Paketlenmiş (Linux/Mac): resources/native-dist (extraResources)
     if (app.isPackaged) {
         out.push(path.join(process.resourcesPath, 'native-dist', exeName));
-        // Optional fallback if third_party is shipped and contains a binary
+        // third_party taşınmış ve binary içeriyorsa isteğe bağlı yedek
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', exeName));
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'bin', exeName));
         return out;
     }
 
-    // Dev: keep existing behavior (distPath + build-visualizer candidates handled below)
+    // Dev: mevcut davranışı koru (distPath + build-visualizer adayları aşağıda)
     out.push(getResourcePath(path.join('native-dist', exeName)));
     return out;
 }
@@ -1404,11 +1456,11 @@ function getVisualizerExecutablePath() {
         ? 'aurivo-projectm-visualizer.exe'
         : 'aurivo-projectm-visualizer';
 
-    // Base candidate(s)
+    // Temel aday(lar)
     const baseCandidates = getVisualizerExecutableCandidates();
     const basePick = pickFirstExistingPath(baseCandidates);
 
-    // Dev convenience: prefer the freshly built CMake output if available.
+    // Geliştirici kolaylığı: varsa yeni CMake çıktısını tercih et.
     const devCandidates = process.platform === 'win32'
         ? [
             path.join(__dirname, 'build-visualizer', 'Release', exeName),
@@ -1418,8 +1470,8 @@ function getVisualizerExecutablePath() {
             path.join(__dirname, 'build-visualizer', exeName)
         ];
 
-    // Dev convenience: prefer the freshly built CMake output if available.
-    // This avoids "derlemede çalışıyor ama uygulamada çalışmıyor" issues caused by forgetting to copy to native-dist.
+    // Geliştirici kolaylığı: varsa yeni CMake çıktısını tercih et.
+    // Bu, native-dist'e kopyalamayı unutunca oluşan "derlemede çalışıyor ama uygulamada çalışmıyor" sorunlarını önler.
     if (isDevMode()) {
         for (const p of devCandidates) {
             if (fs.existsSync(p)) return p;
@@ -1427,7 +1479,7 @@ function getVisualizerExecutablePath() {
         return basePick || ((baseCandidates && baseCandidates[0]) ? baseCandidates[0] : '');
     }
 
-    // Non-dev: prefer packaged candidates; allow fallback if it's missing.
+    // Dev dışı: paketli adayları tercih et; yoksa yedeğe izin ver.
     if (basePick && fs.existsSync(basePick)) return basePick;
     for (const p of devCandidates) {
         if (fs.existsSync(p)) {
@@ -1489,7 +1541,7 @@ function startVisualizer() {
             message: title,
             detail: body,
             buttons: ['Tamam']
-        }).catch(() => { /* ignore */ });
+        }).catch(() => { /* yoksay */ });
         return false;
     }
 
@@ -1499,14 +1551,14 @@ function startVisualizer() {
         ...process.env,
         PROJECTM_PRESETS_PATH: presetsPath,
         AURIVO_VISUALIZER_ICON: visualizerIconPath,
-        // UI language for the native visualizer (SDL2/ImGui)
+        // Native görselleştirici için UI dili (SDL2/ImGui)
         AURIVO_LANG: getUiLanguageSync(),
-        // Default main window size (user can resize; next open returns to this default).
+        // Varsayılan ana pencere boyutu (kullanıcı yeniden boyutlandırabilir; bir sonraki açılışta bu varsayılan kullanılır).
         AURIVO_VIS_MAIN_W: process.env.AURIVO_VIS_MAIN_W || '900',
         AURIVO_VIS_MAIN_H: process.env.AURIVO_VIS_MAIN_H || '650'
     };
 
-    // Linux: SDL2 için display variables (Wayland/X11)
+    // Linux: SDL2 için görüntü değişkenleri (Wayland/X11)
     if (process.platform === 'linux') {
         env.DISPLAY = process.env.DISPLAY || '';
         env.WAYLAND_DISPLAY = process.env.WAYLAND_DISPLAY || '';
@@ -1521,18 +1573,18 @@ function startVisualizer() {
         console.log('[Visualizer] DISPLAY:', env.DISPLAY);
         console.log('[Visualizer] SDL_VIDEODRIVER:', env.SDL_VIDEODRIVER);
 
-        // Debug: strace ile çalıştır
-        const useStrace = false; // Set to true for debugging
+        // Hata ayıklama: strace ile çalıştır
+        const useStrace = false; // hata ayıklama için true yap
         const actualExe = useStrace ? 'strace' : exePath;
         const actualArgs = useStrace ? ['-o', '/tmp/visualizer-strace.log', '-ff', exePath, '--presets', presetsPath] : ['--presets', presetsPath];
 
         visualizerProc = spawn(actualExe, actualArgs, {
             env,
-            stdio: ['pipe', 'inherit', 'inherit'], // Always inherit stdout/stderr for debugging
-            detached: true // Run in separate process group to avoid Electron's GL context conflicts
+            stdio: ['pipe', 'inherit', 'inherit'], // Hata ayıklama için stdout/stderr her zaman inherit
+            detached: true // Electron GL context çakışmalarını önlemek için ayrı process grubunda çalıştır
         });
 
-        // Unref so Electron doesn't wait for visualizer
+        // Electron'ın görselleştiriciyi beklememesi için unref
         visualizerProc.unref();
 
         startVisualizerFeed();
@@ -1549,7 +1601,7 @@ function startVisualizer() {
             visualizerProc = null;
         });
 
-        // stdin error handling (EPIPE prevention)
+        // stdin hata yönetimi (EPIPE önleme)
         if (visualizerProc.stdin) {
             visualizerProc.stdin.on('error', (err) => {
                 if (err.code === 'EPIPE') {
@@ -1576,7 +1628,7 @@ function stopVisualizer() {
         stopVisualizerFeed();
         visualizerProc.kill('SIGTERM');
     } catch (e) {
-        // best-effort
+        // en iyi çaba
     }
     visualizerProc = null;
     return true;
@@ -1595,7 +1647,7 @@ ipcMain.handle('visualizer:toggle', () => {
 });
 
 // ============================================
-// I18N (LOCALES)
+// I18N (LOCALE'LER)
 // ============================================
 ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
     const normalized = normalizeUiLang(lang) || 'en';
@@ -1613,7 +1665,7 @@ ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
         }
         return {};
     }
-    // Fallback
+    // Yedek
     if (normalized !== 'en') {
         const json = await readFirstJson(getLocaleCandidatePaths('en'));
         if (json) return json;
@@ -1622,17 +1674,17 @@ ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
 });
 
 // ============================================
-// APP CONTROL (RELAUNCH)
+// APP KONTROL (YENİDEN BAŞLAT)
 // ============================================
 ipcMain.handle('app:relaunch', async () => {
     try {
-        // Ensure detached native processes (e.g. visualizer) don't survive relaunch.
+        // Ayrık native süreçlerin (örn. görselleştirici) yeniden başlatmadan sonra yaşamamasını sağla.
         stopVisualizer();
 
         app.relaunch();
-        // Prefer graceful quit so before-quit handlers run.
+        // before-quit handler'larının çalışması için nazik çıkışı tercih et.
         app.quit();
-        // Safety net: force exit if something blocks quitting.
+        // Güvenlik ağı: çıkışı engelleyen bir şey varsa zorla çık.
         setTimeout(() => {
             try { app.exit(0); } catch { }
         }, 900);
@@ -1789,7 +1841,7 @@ ipcMain.handle('dialog:openFiles', async (event, filtersOrOpts) => {
 });
 
 // ============================================================
-// WEB SECURITY / PRIVACY
+// WEB GÜVENLİĞİ / GİZLİLİK
 // ============================================================
 ipcMain.handle('web:openExternal', async (_event, url) => {
     const u = String(url || '').trim();
@@ -1836,7 +1888,7 @@ ipcMain.handle('web:clearData', async (_event, options) => {
 });
 
 // ============================================================
-// DOWNLOAD (Aurivo-Dawlod / yt-dlp via Python CLI)
+// İNDİRME (Python CLI ile Aurivo-Dawlod / yt-dlp)
 // ============================================================
 ipcMain.handle('download:start', async (_event, options) => {
     const url = String(options?.url || '').trim();
@@ -1874,7 +1926,7 @@ ipcMain.handle('download:start', async (_event, options) => {
         }
     }
 
-    // Advanced options (all modes)
+    // Gelişmiş seçenekler (tüm modlar)
     const cookiesFromBrowser = String(options?.cookiesFromBrowser || '').trim();
     if (cookiesFromBrowser) args.push('--cookies-from-browser', cookiesFromBrowser);
 
@@ -2018,11 +2070,11 @@ ipcMain.handle('fs:readDirectory', async (event, dirPath) => {
                     isDirectory = st.isDirectory();
                     isFile = st.isFile();
                 } catch {
-                    // ignore
+                    // yoksay
                 }
             }
 
-            // Ek fallback: tür belirlenemediyse ama desteklenen uzantıysa dosya kabul et
+            // Ek yedek: tür belirlenemediyse ama desteklenen uzantıysa dosya kabul et
             if (!isDirectory && !isFile && isSupportedMedia) {
                 isFile = true;
             }
@@ -2190,7 +2242,7 @@ ipcMain.handle('playlist:load', async () => {
     }
 });
 
-// System Tray State Update (renderer'dan güncel playback durumu)
+// Sistem Tepsisi Durum Güncelleme (renderer'dan güncel oynatma durumu)
 ipcMain.on('update-tray-state', (event, state) => {
     updateTrayMenu(state);
     if (tray && state.currentTrack) {
@@ -2198,12 +2250,12 @@ ipcMain.on('update-tray-state', (event, state) => {
     }
 });
 
-// MPRIS Metadata Update (renderer'dan media bilgileri)
+// MPRIS Metadata Güncelle (renderer'dan media bilgileri)
 ipcMain.on('update-mpris-metadata', (event, metadata) => {
     updateMPRISMetadata(metadata);
 });
 
-// Albüm Kapağı Çıkarma (ID3 tag'lerinden)
+// Albüm Kapağı Çıkarma (ID3 etiketi'lerinden)
 ipcMain.handle('media:getAlbumArt', async (event, filePath) => {
     try {
         console.log('Albüm kapağı istendi:', filePath);
@@ -2235,7 +2287,7 @@ ipcMain.handle('media:getAlbumArt', async (event, filePath) => {
             console.log('node-id3 yüklü değil, fallback kullanılıyor');
         }
 
-        // Fallback - Manuel okuma veya ffmpeg
+        // Yedek - Manuel okuma veya ffmpeg
         return await extractEmbeddedCover(filePath);
 
     } catch (error) {
@@ -2244,7 +2296,7 @@ ipcMain.handle('media:getAlbumArt', async (event, filePath) => {
     }
 });
 
-// Video thumbnail çıkarma (ffmpeg ile 1 kare al)
+// Video küçük resmi çıkarma (ffmpeg ile 1 kare al)
 ipcMain.handle('media:getVideoThumbnail', async (_event, filePath) => {
     try {
         const fp = String(filePath || '').trim();
@@ -2262,7 +2314,7 @@ ipcMain.handle('media:getVideoThumbnail', async (_event, filePath) => {
 });
 
 function getFfmpegPathForEnv() {
-    // Production'da bundled ffmpeg'i kullan, development'da system ffmpeg
+    // Prod sürümde paketlenmiş ffmpeg'i kullan, geliştirmede sistem ffmpeg
     let ffmpegPath = 'ffmpeg';
     if (app.isPackaged) {
         if (process.platform === 'win32') {
@@ -2274,7 +2326,7 @@ function getFfmpegPathForEnv() {
     return ffmpegPath;
 }
 
-// Album art çıkarma - ID3v2 veya ffmpeg kullan
+// Albüm kapağı çıkarma - ID3v2 veya ffmpeg kullan
 async function extractEmbeddedCover(filePath) {
     try {
         const ext = path.extname(filePath).toLowerCase();
@@ -2300,7 +2352,7 @@ async function extractCoverWithFFmpeg(filePath) {
 
         const ffmpegPath = getFfmpegPathForEnv();
 
-        // Windows'ta ffmpeg yoksa fallback
+        // Windows'ta ffmpeg yoksa yedek
         if (process.platform === 'win32' && app.isPackaged) {
             if (!fs.existsSync(ffmpegPath)) {
                 console.log('ffmpeg.exe bundled değil, M4A album art çıkarılamayabilir');
@@ -2314,17 +2366,17 @@ async function extractCoverWithFFmpeg(filePath) {
             try {
                 prependToProcessPath(path.dirname(ffmpegPath));
             } catch {
-                // ignore
+                // yoksay
             }
         }
 
         // ffmpeg ile embedded image'ı pipe'la al
         const ffmpeg = spawn(ffmpegPath, [
             '-i', filePath,
-            '-an',           // Audio stream yok say
+            '-an',           // Ses akış yok say
             '-vcodec', 'copy', // Video codec'i copy et (attached_pic için)
             '-f', 'image2pipe', // Pipe formatı
-            '-vframes', '1',   // Sadece 1 frame
+            '-vframes', '1',   // Sadece 1 kare
             'pipe:1'          // stdout'a yaz
         ]);
 
@@ -2359,7 +2411,7 @@ async function extractCoverWithFFmpeg(filePath) {
     });
 }
 
-// ffmpeg ile videodan thumbnail al (JPEG)
+// ffmpeg ile videodan küçük resim al (JPEG)
 async function extractVideoThumbnailWithFFmpeg(filePath) {
     return new Promise((resolve) => {
         const { spawn } = require('child_process');
@@ -2375,7 +2427,7 @@ async function extractVideoThumbnailWithFFmpeg(filePath) {
             try {
                 prependToProcessPath(path.dirname(ffmpegPath));
             } catch {
-                // ignore
+                // yoksay
             }
         }
 
@@ -2394,7 +2446,7 @@ async function extractVideoThumbnailWithFFmpeg(filePath) {
 
         const chunks = [];
         ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
-        ffmpeg.stderr.on('data', () => { /* ignore */ });
+        ffmpeg.stderr.on('data', () => { /* yoksay */ });
 
         ffmpeg.on('close', (code) => {
             if (code === 0 && chunks.length) {
@@ -2422,7 +2474,7 @@ async function extractID3Cover(filePath) {
             return null;
         }
 
-        // APIC frame ara (albüm kapağı)
+        // APIC kare ara (albüm kapağı)
         const apicIndex = buffer.indexOf('APIC');
         if (apicIndex === -1) return null;
 
@@ -2463,10 +2515,10 @@ async function extractID3Cover(filePath) {
 }
 
 // ============================================
-// C++ AUDIO ENGINE IPC HANDLERS
+// C++ SES MOTORU IPC İŞLEYİCİLERİ
 // ============================================
 
-// Native audio engine mevcut mu?
+// Native ses motoru mevcut mu?
 ipcMain.handle('audio:isNativeAvailable', () => {
     // Renderer preload genelde ilk açılışta bunu çağırır; burada lazy-init dene.
     try {
@@ -2474,7 +2526,7 @@ ipcMain.handle('audio:isNativeAvailable', () => {
             initNativeAudioEngineSafe();
         }
     } catch (e) {
-        // best-effort
+        // en iyi çaba
     }
     return isNativeAudioAvailable;
 });
@@ -2491,12 +2543,12 @@ ipcMain.handle('audio:loadFile', async (event, filePath) => {
     const ok = audioEngine.loadFile(filePath);
     console.log('[MAIN] loadFile:', ok ? 'ok' : 'fail', filePath);
     if (ok) {
-        applyPersistedEq32SfxFromSettings().catch(() => { /* ignore */ });
+        applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
     }
     return ok ? { success: true } : { success: false, error: 'Dosya yüklenemedi' };
 });
 
-// True overlap crossfade
+// Gerçek örtüşmeli crossfade
 ipcMain.handle('audio:crossfadeTo', async (event, filePath, durationMs) => {
     if (!audioEngine || !isNativeAudioAvailable) {
         return { success: false, error: 'Native audio yok' };
@@ -2509,7 +2561,7 @@ ipcMain.handle('audio:crossfadeTo', async (event, filePath, durationMs) => {
     const ok = (res === true) || (res && res.success);
     console.log('[MAIN] crossfadeTo:', ok ? 'ok' : 'fail', 'ms=', ms, filePath);
     if (ok) {
-        applyPersistedEq32SfxFromSettings().catch(() => { /* ignore */ });
+        applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
     }
     return ok ? { success: true } : { success: false, error: (res && res.error) || 'Crossfade başarısız' };
 });
@@ -2622,7 +2674,7 @@ ipcMain.handle('audio:setVolume', (event, volume) => {
     }
 });
 
-// Volume fade (native engine): yoğun IPC spam yerine main'de ramp
+// Ses fade (native motor): yoğun IPC spam yerine main'de ramp
 let volumeFadeTimer = null;
 let volumeFadeResolve = null;
 
@@ -2858,7 +2910,7 @@ ipcMain.handle('audio:setStereoExpander', (event, percent) => {
 });
 
 // ============================================
-// AUTO GAIN / NORMALIZE IPC HANDLERS
+// AUTO GAIN / NORMALIZE IPC İŞLEYİCİLERİ
 // ============================================
 ipcMain.handle('audio:setAutoGainEnabled', (event, enabled) => {
     console.log('[MAIN] audio:setAutoGainEnabled called with:', enabled);
@@ -2968,7 +3020,7 @@ ipcMain.handle('audio:getGainReduction', () => {
 });
 
 // ============================================
-// TRUE PEAK LIMITER + METER IPC HANDLERS
+// TRUE PEAK LIMITER + METER IPC İŞLEYİCİLERİ
 // ============================================
 ipcMain.handle('audio:setTruePeakEnabled', (event, enabled) => {
     console.log('[MAIN] audio:setTruePeakEnabled called with:', enabled);
@@ -3055,7 +3107,7 @@ ipcMain.handle('audio:resetEQ', () => {
                 filename: '__flat__',
                 name: 'Düz (Flat)'
             }
-        }).catch(() => { /* ignore */ });
+        }).catch(() => { /* yoksay */ });
 
         return true;
     } catch (error) {
@@ -3222,7 +3274,7 @@ ipcMain.handle('audio:setLimiter', (event, enabled, ceiling, rel) => {
     return { success: false };
 });
 
-// Limiter individual controls
+// Limiter tekil kontrolleri
 ipcMain.handle('audio:enableLimiter', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.EnableLimiter === 'function') {
         return audioEngine.EnableLimiter(enabled);
@@ -3277,7 +3329,7 @@ ipcMain.handle('audio:resetLimiter', (event) => {
     return false;
 });
 
-// Bass Enhancer individual controls
+// Bass Enhancer tekil kontrolleri
 ipcMain.handle('audio:enableBassEnhancer', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.EnableBassEnhancer === 'function') {
         return audioEngine.EnableBassEnhancer(enabled);
@@ -3333,7 +3385,7 @@ ipcMain.handle('audio:resetBassEnhancer', (event) => {
     return false;
 });
 
-// Noise Gate individual controls
+// Noise Gate tekil kontrolleri
 ipcMain.handle('audio:enableNoiseGate', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.EnableNoiseGate === 'function') {
         return audioEngine.EnableNoiseGate(enabled);
@@ -3521,7 +3573,7 @@ ipcMain.handle('audio:resetExciter', (event) => {
 });
 
 // ============================================
-// STEREO WIDENER IPC HANDLERS
+// STEREO WIDENER IPC İŞLEYİCİLERİ
 // ============================================
 
 ipcMain.handle('audio:enableStereoWidener', (event, enabled) => {
@@ -3659,7 +3711,7 @@ ipcMain.handle('audio:resetEchoEffect', (event) => {
     return false;
 });
 
-// ============== CONVOLUTION REVERB IPC HANDLERS ==============
+// ============== CONVOLUTION REVERB IPC İŞLEYİCİLERİ ==============
 
 ipcMain.handle('audio:enableConvolutionReverb', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.EnableConvolutionReverb === 'function') {
@@ -3739,7 +3791,7 @@ ipcMain.handle('audio:resetConvolutionReverb', (event) => {
 });
 
 // ============================================
-// CROSSFEED (Headphone Enhancement)
+// CROSSFEED (Kulaklık İyileştirme)
 // ============================================
 ipcMain.handle('audio:enableCrossfeed', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable) {
@@ -3798,7 +3850,7 @@ ipcMain.handle('audio:resetCrossfeed', (event) => {
 });
 
 // ============================================
-// BASS MONO (Low Frequency Mono Summing)
+// BASS MONO (Düşük Frekansları Mono Birleştirme)
 // ============================================
 ipcMain.handle('audio:enableBassMono', (event, enabled) => {
     if (audioEngine && isNativeAudioAvailable) {
@@ -3836,7 +3888,7 @@ ipcMain.handle('audio:resetBassMono', (event) => {
 });
 
 // ============================================
-// DYNAMIC EQ IPC HANDLERS
+// DYNAMIC EQ IPC İŞLEYİCİLERİ
 // ============================================
 ipcMain.handle('audio:enableDynamicEQ', (event, enable) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.enableDynamicEQ === 'function') {
@@ -3901,7 +3953,7 @@ ipcMain.handle('audio:setDynamicEQRange', (event, dB) => {
     return false;
 });
 
-// TAPE SATURATION IPC HANDLERS
+// TAPE SATURATION IPC İŞLEYİCİLERİ
 // ============================================
 ipcMain.handle('audio:enableTapeSaturation', (event, enable) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.enableTapeSaturation === 'function') {
@@ -3958,7 +4010,7 @@ ipcMain.handle('audio:setTapeHiss', (event, percent) => {
     return false;
 });
 
-// BIT-DEPTH / DITHER IPC HANDLERS
+// BIT-DEPTH / DITHER IPC İŞLEYİCİLERİ
 // ============================================
 ipcMain.handle('audio:enableBitDepthDither', (event, enable) => {
     if (audioEngine && isNativeAudioAvailable && typeof audioEngine.enableBitDepthDither === 'function') {
@@ -4071,7 +4123,7 @@ ipcMain.handle('audio:setBassBoost', (event, value) => {
 });
 
 // ============================================
-// AUTOEQ PRESETS IPC HANDLERS
+// AUTOEQ PRESET IPC İŞLEYİCİLERİ
 // ============================================
 
 // Preset klasörü yolu (packaged/app.asar içinden okunur)
@@ -4163,7 +4215,7 @@ const AURIVO_EQ_FEATURED_LIST = [
     ...AURIVO_EQ_BUILTINS_LOADED.list
 ];
 
-// Preset listesi cache
+// Preset listesi önbelleği
 let presetListCache = null;
 
 function computeEq32GroupsFromData({ filename, name, description, preset }) {
@@ -4347,7 +4399,7 @@ ipcMain.handle('eqPresets:select', async (event, filename) => {
                     bands.forEach((v, i) => audioEngine.setEQBand(i, v));
                 }
             } catch {
-                // best-effort
+                // en iyi çaba
             }
         }
 
@@ -4374,7 +4426,7 @@ ipcMain.handle('eqPresets:select', async (event, filename) => {
     }
 });
 
-// Uygulama kapanırken cleanup
+// Uygulama kapanırken temizlik
 app.on('before-quit', () => {
     if (audioEngine) {
         audioEngine.cleanup();
