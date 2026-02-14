@@ -2,6 +2,14 @@
 
 Windows odakli depo. Linux surumu ayri repoda tutulur.
 
+## Yeni Ozellikler (2026-02-14)
+- Aurivo-Dawlod indirici modulu uygulamaya entegre edildi (yan sekmeden acilir).
+- Surukle-birak davranisi duzeltildi: klasor taramasi tetiklemez, sadece birakilan dosyalari ekler.
+- Playlist otomatik A-Z sirali calisir (A-Z / Z-A butonu ile yon degistirilebilir).
+- Ayni parca tekrar eklenmez (konum farkli olsa bile ayni isimli parcalar tekillestirilir).
+- Calinan dosya silinirse: calma devam eder, listede "silindi" olarak isaretlenir; geri gelirse isaret kalkar.
+- WebView kararliligi iyilestirildi ve YouTube izinli domain listesi genisletildi.
+
 ## Hizli Baslangic (Windows)
 1. Gerekenler
    - Node.js (LTS)

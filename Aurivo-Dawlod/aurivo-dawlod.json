@@ -1,0 +1,19 @@
+{
+	"homepage": "https://ytdn.netlify.app",
+	"version": "3.20.2",
+	"description": "A modern GUI App for downloading Videos and Audios from hundreds of sites",
+	"license": "GPL-3",
+	"url": "https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows",
+	"checkver": {
+		"github": "https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows"
+	},
+	"bin": ["Aurivo-Dawlod.exe", ["Aurivo-Dawlod.exe", "aurivo-dawlod"]],
+	"shortcuts": [["Aurivo-Dawlod.exe", "Aurivo-Dawlod"]],
+	"architecture": ["x64"],
+	"autoupdate": {
+		"url": "https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows",
+		"hash": {
+			"url": "$url.sha256"
+		}
+	}
+}

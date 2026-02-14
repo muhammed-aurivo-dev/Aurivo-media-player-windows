@@ -17,6 +17,21 @@
     "internet": "INTERNET",
     "loading": "Loading..."
   },
+  "libraryActions": {
+    "addFolder": "Add Folder",
+    "addFiles": "Add Files",
+    "openVideo": "Open Video"
+  },
+  "nowPlaying": {
+    "prefix": "Now Playing",
+    "ready": "Now Playing: Aurivo Player - Ready",
+    "none": "No Track",
+    "unknownTrack": "Unknown Track",
+    "unknownArtist": "Unknown Artist"
+  },
+  "web": {
+    "media": "Web Media"
+  },
   "common": {
     "ok": "OK"
   },
@@ -141,7 +156,36 @@
     "repeat": "Repeat",
     "volume": "Volume",
     "visual": "Visualizer",
-    "eq": "Sound Effects (EQ)"
+    "eq": "Sound Effects (EQ)",
+    "clearPlaylist": "Clear playlist"
+  },
+  "nav": {
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload"
+  },
+  "visualizerMenu": {
+    "framerate": "Frame rate",
+    "framerateLow": "Low (20 fps)",
+    "framerateMedium": "Medium (25 fps)",
+    "framerateHigh": "High (30 fps)",
+    "framerateUltra": "Very high (60 fps)",
+    "analyzers": {
+      "bar": "Bar analyzer",
+      "block": "Block analyzer",
+      "boom": "Boom analyzer",
+      "sonogram": "Sonogram",
+      "turbine": "Turbine",
+      "nyanalyzer": "Nyanalyzer Cat",
+      "rainbow": "Rainbow Dash",
+      "none": "No analyzer"
+    },
+    "psychedelic": "Use Psychedelic Colors",
+    "visuals": "Visuals",
+    "effects": {
+      "glow": "Glow effect",
+      "reflection": "Reflection"
+    }
   },
   "about": {
     "title": "Aurivo Media Player",
@@ -265,6 +309,11 @@
     },
     "crossfeed": {
       "statusChecking": "DSP status: checking…",
+      "attached": "Attached",
+      "detached": "Detached",
+      "errorLabel": "Error",
+      "statusLine": "DSP status: {attached} | Callback: {count}{errText}",
+      "statusUnreadable": "DSP status: unreadable",
       "presetDescriptions": {
         "0": "🎧 Natural: Speaker-like stereo experience (Recommended)",
         "1": "🎵 Mild: Light crossfeed, minimal fatigue reduction",
@@ -296,6 +345,61 @@
     },
     "footer": {
       "engineInfo": "Aurivo DSP Engine v3.0 • 48kHz / 32-bit Float Processing"
+    },
+    "nativeUnavailable": "⚠️ Sound Effects unavailable: Native Audio Engine is not loaded. Basic playback is still available.",
+    "tapesat": {
+      "statusLabel": "DSP Status:",
+      "statusAttached": "Attached (Mastering Priority 12)",
+      "presets": {
+        "subtle": "Subtle Warmth",
+        "glue": "Mastering Glue",
+        "crisp": "Crisp Tape",
+        "lofi": "Lo-fi Tape"
+      }
+    },
+    "truepeak": {
+      "clipping": "Clipping:",
+      "gainReduction": "GR:",
+      "oversampling": "Oversampling:"
+    },
+    "convreverb": {
+      "irPresets": "IR Presets",
+      "presets": {
+        "hall": "Concert Hall",
+        "church": "Church",
+        "room": "Room",
+        "plate": "Plate"
+      }
+    },
+    "bassmono": {
+      "presets": {
+        "vinyl": "Vinyl Safe",
+        "club": "Club System",
+        "mastering": "Mastering",
+        "dj": "DJ Mix",
+        "sub": "Sub Only"
+      }
+    },
+    "dynamiceq": {
+      "presets": {
+        "deharsh": "De-Harsh (3-5kHz)",
+        "demud": "De-Mud (200-400Hz)",
+        "vocal": "Vocal Presence",
+        "deesser": "Dynamic De-esser",
+        "basstighten": "Bass Tighten",
+        "air": "Air Sparkle",
+        "drumsnap": "Drum Snap",
+        "warmth": "Analog Warmth"
+      }
+    },
+    "bitdither": {
+      "presets": {
+        "cd16": "CD Mastering (16-bit)",
+        "retro12": "Retro 12-bit",
+        "game8": "8-bit Gaming",
+        "vinyl": "Lo-fi Vinyl",
+        "crunch": "Subtle Crunch"
+      }
     }
   },
   "eqPresets": {
@@ -451,5 +555,26 @@
       "webResetOk": "Web has been reset.",
       "webResetFailed": "Couldn't reset Web: {error}"
     }
-  }
+  },
+  "about.featuresTitle": "Features & Transparency",
+  "about.sections.app.title": "App Features",
+  "about.sections.app.item1": "Combines music, video and web experience in a single interface.",
+  "about.sections.app.item2": "Provides dual-player structure, playlist support and media controls.",
+  "about.sections.app.item3": "Works with multi-language support and system language detection.",
+  "about.sections.web.title": "Web Features",
+  "about.sections.web.item1": "Supports YouTube, Spotify, SoundCloud, Mixcloud and social platforms.",
+  "about.sections.web.item2": "Sessions are kept in a secure web partition (persist partition).",
+  "about.sections.web.item3": "Navigation works only with allowed and validated URL rules.",
+  "about.sections.security.title": "Security & Privacy",
+  "about.sections.security.item1": "Sensitive data like email/password/token is not stored in app settings.",
+  "about.sections.security.item2": "Web view is protected with sandbox, permission controls and domain restrictions.",
+  "about.sections.security.item3": "Open in external browser is enabled only for valid http/https URLs.",
+  "about.sections.sfx.title": "Sound Effects Features",
+  "about.sections.sfx.item1": "Includes 32-band EQ, compressor, limiter, reverb, crossfeed and other DSP modules.",
+  "about.sections.sfx.item2": "Provides preset system and real-time parameter control.",
+  "about.sections.sfx.item3": "Limits inactive effect animations for better resource usage.",
+  "about.sections.visual.title": "Visualization Features",
+  "about.sections.visual.item1": "Offers multiple analyzer modes and performance settings.",
+  "about.sections.visual.item2": "FPS and visual effect options are fully user-controlled.",
+  "about.sections.visual.item3": "Produces low-latency live visual feedback synced with audio."
 }

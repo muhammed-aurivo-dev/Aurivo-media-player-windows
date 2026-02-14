@@ -28,3 +28,9 @@ Thumbs.db
 
 # Generated
 native-dist/
+
+# Local duplicate assets (kept for dev, not tracked)
+assets/css/
+assets/fonts/Inter.ttf
+assets/fonts/JetBrainsMono-Regular.ttf
+assets/fonts/Ubuntu-Regular.ttf
