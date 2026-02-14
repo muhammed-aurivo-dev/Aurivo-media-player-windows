@@ -57,6 +57,27 @@
 
 namespace fs = std::filesystem;
 
+static void setSdlWindowIconFromEnv(SDL_Window* w) {
+    if (!w) return;
+    const char* iconPath = std::getenv("AURIVO_VISUALIZER_ICON");
+    if (!iconPath || !*iconPath) return;
+
+    SDL_Surface* iconSurf = nullptr;
+#ifdef SDL_IMAGE_MAJOR_VERSION
+    iconSurf = IMG_Load(iconPath);
+#else
+    // SDL_LoadBMP PNG okuyamaz; bu yüzden ana süreçten BMP yolunu geçiyoruz.
+    iconSurf = SDL_LoadBMP(iconPath);
+#endif
+    if (!iconSurf) {
+        std::cerr << "[Icon] failed to load: " << iconPath << " (" << SDL_GetError() << ")" << std::endl;
+        return;
+    }
+
+    SDL_SetWindowIcon(w, iconSurf);
+    SDL_FreeSurface(iconSurf);
+}
+
 enum class UiLang {
     EN,
     TR,
@@ -1874,6 +1895,9 @@ static bool ensurePickerWindow() {
         return false;
     }
 
+    // Preset secici pencere ikonunu da ayarla (Windows titlebar sol ust simge)
+    setSdlWindowIconFromEnv(g.pickerWindow);
+
     // Bazı WM'ler önceki boyutu geri yükleyebilir; istenen boyutu zorla.
     SDL_SetWindowSize(g.pickerWindow, desiredW, desiredH);
 
@@ -2058,20 +2082,7 @@ static bool initMainWindowAndGL() {
     g.mainEnforceUntilMs = nowMs() + 1500ULL;
 
     // Pencere ikonunu env'den ayarla (ana süreç tarafından geçirilir)
-    if (const char* iconPath = std::getenv("AURIVO_VISUALIZER_ICON")) {
-        SDL_Surface* iconSurf = nullptr;
-#ifdef SDL_IMAGE_MAJOR_VERSION
-        iconSurf = IMG_Load(iconPath);
-#else
-        iconSurf = SDL_LoadBMP(iconPath);
-#endif
-        if (iconSurf) {
-            SDL_SetWindowIcon(g.window, iconSurf);
-            SDL_FreeSurface(iconSurf);
-        } else {
-            std::cerr << "[Icon] failed to load: " << iconPath << " (" << SDL_GetError() << ")" << std::endl;
-        }
-    }
+    setSdlWindowIconFromEnv(g.window);
 
     // Önce GL 3.3 core dene.
     if (!tryCreateContext(3, 3)) {

@@ -1999,7 +1999,9 @@ function startVisualizer() {
         return false;
     }
 
-    const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_512.png'));
+    // Visualizer SDL tarafinda SDL_LoadBMP kullaniliyor (SDL_image yok).
+    // Bu nedenle BMP ikon yolunu geciyoruz ki Windows titlebar'da ikon gorunsun.
+    const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
 
     const env = {
         ...process.env,
