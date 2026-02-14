@@ -169,7 +169,7 @@ jobs:
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-SDL2_image
             mingw-w64-x86_64-glew
-            mingw-w64-x86_64-projectm
+            mingw-w64-x86_64-libprojectm
 
       - name: Build Visualizer (aurivo-projectm-visualizer.exe)
         shell: pwsh
