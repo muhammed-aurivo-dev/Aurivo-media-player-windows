@@ -1999,14 +1999,16 @@ function startVisualizer() {
         return false;
     }
 
-    // Visualizer SDL tarafinda SDL_LoadBMP kullaniliyor (SDL_image yok).
-    // Bu nedenle BMP ikon yolunu geciyoruz ki Windows titlebar'da ikon gorunsun.
-    const visualizerIconPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
+    // Visualizer: Windows'ta titlebar ikonu icin .ico daha guvenilir (WM_SETICON).
+    // Cross-platform fallback icin BMP de gonderebiliriz.
+    const visualizerIconBmpPath = getResourcePath(path.join('icons', 'aurivo_logo.bmp'));
+    const visualizerIconIcoPath = getResourcePath(path.join('icons', 'aurivo.ico'));
 
     const env = {
         ...process.env,
         PROJECTM_PRESETS_PATH: presetsPath,
-        AURIVO_VISUALIZER_ICON: visualizerIconPath,
+        AURIVO_VISUALIZER_ICON: visualizerIconBmpPath,
+        AURIVO_VISUALIZER_ICON_ICO: visualizerIconIcoPath,
         // Native görselleştirici için UI dili (SDL2/ImGui)
         AURIVO_LANG: getUiLanguageSync(),
         // Varsayılan ana pencere boyutu (kullanıcı yeniden boyutlandırabilir; bir sonraki açılışta bu varsayılan kullanılır).

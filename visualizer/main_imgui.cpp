@@ -28,6 +28,9 @@
 #include <vector>
 
 #include <SDL2/SDL.h>
+#ifdef _WIN32
+#include <SDL2/SDL_syswm.h>
+#endif
 
 #ifdef SDL_IMAGE_MAJOR_VERSION
 #include <SDL2/SDL_image.h>
@@ -59,6 +62,51 @@ namespace fs = std::filesystem;
 
 static void setSdlWindowIconFromEnv(SDL_Window* w) {
     if (!w) return;
+
+#ifdef _WIN32
+    // Windows titlebar (sol ust) ikonu: WM_SETICON ile .ico yuklemek daha guvenilir.
+    if (const char* icoPath = std::getenv("AURIVO_VISUALIZER_ICON_ICO")) {
+        if (icoPath && *icoPath) {
+            SDL_SysWMinfo wmInfo;
+            SDL_VERSION(&wmInfo.version);
+            if (SDL_GetWindowWMInfo(w, &wmInfo) == SDL_TRUE) {
+                HWND hwnd = wmInfo.info.win.window;
+
+                auto utf8ToWide = [](const char* s) -> std::wstring {
+                    if (!s) return L"";
+                    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+                    if (len <= 0) return L"";
+                    std::wstring out;
+                    out.resize((size_t)len);
+                    MultiByteToWideChar(CP_UTF8, 0, s, -1, out.data(), len);
+                    if (!out.empty() && out.back() == L'\0') out.pop_back();
+                    return out;
+                };
+
+                static HICON gIcoBig = nullptr;
+                static HICON gIcoSmall = nullptr;
+
+                std::wstring wpath = utf8ToWide(icoPath);
+                if (!wpath.empty()) {
+                    if (!gIcoBig) {
+                        gIcoBig = (HICON)LoadImageW(nullptr, wpath.c_str(), IMAGE_ICON, 256, 256,
+                                                   LR_LOADFROMFILE | LR_DEFAULTCOLOR);
+                    }
+                    if (!gIcoSmall) {
+                        gIcoSmall = (HICON)LoadImageW(nullptr, wpath.c_str(), IMAGE_ICON, 32, 32,
+                                                     LR_LOADFROMFILE | LR_DEFAULTCOLOR);
+                    }
+                    if (gIcoBig) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)gIcoBig);
+                    if (gIcoSmall) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)gIcoSmall);
+
+                    // Eger ikon ayarlandiysa, BMP fallback'e gecmeye gerek yok.
+                    if (gIcoBig || gIcoSmall) return;
+                }
+            }
+        }
+    }
+#endif
+
     const char* iconPath = std::getenv("AURIVO_VISUALIZER_ICON");
     if (!iconPath || !*iconPath) return;
 
