@@ -156,6 +156,33 @@ jobs:
         if: steps.native_build.outcome == 'failure'
         run: exit 1
 
+      - name: Setup MSYS2 (mingw64) for Visualizer + DLLs
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-projectm
+
+      - name: Build Visualizer (aurivo-projectm-visualizer.exe)
+        shell: pwsh
+        run: |
+          if (!(Test-Path "native-dist")) { New-Item -ItemType Directory -Force -Path "native-dist" | Out-Null }
+          cmd /c "set PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH% && cmake -S visualizer -B build-visualizer && cmake --build build-visualizer --config Release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -Force "build-visualizer\aurivo-projectm-visualizer.exe" "native-dist\aurivo-projectm-visualizer.exe"
+          if (!(Test-Path "native-dist\aurivo-projectm-visualizer.exe")) {
+            Write-Host "Visualizer exe missing after build"
+            exit 1
+          }
+
       - name: Prepare Windows resources (ffmpeg.exe + DLL copy)
         run: npm run prepare:win:resources
 
