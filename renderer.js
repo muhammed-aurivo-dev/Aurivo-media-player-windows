@@ -260,6 +260,20 @@ function attachWebViewEvents(webviewEl) {
 
     webviewEl.addEventListener('did-finish-load', () => {
         resetWebRuntime();
+        try { updateNavButtons(); } catch { }
+    });
+
+    webviewEl.addEventListener('did-navigate', () => {
+        try { updateNavButtons(); } catch { }
+    });
+    webviewEl.addEventListener('did-navigate-in-page', () => {
+        try { updateNavButtons(); } catch { }
+    });
+    webviewEl.addEventListener('did-start-loading', () => {
+        try { updateNavButtons(); } catch { }
+    });
+    webviewEl.addEventListener('did-stop-loading', () => {
+        try { updateNavButtons(); } catch { }
     });
 
     webviewEl.addEventListener('render-process-gone', (e) => {
@@ -3427,6 +3441,7 @@ function handleSidebarClick(btn) {
     state.currentPage = page;
     state.currentPanel = panel;
     applyWebUiClasses();
+    try { updateNavButtons(); } catch { }
 
     // Sol panelde: aktif klasör yoksa kayıtlı klasörleri, varsa klasör içeriğini göster.
     try {
@@ -3630,6 +3645,7 @@ async function handlePlatformClick(btn) {
                 // Always set src too; Chromium will ignore if already on same URL.
                 elements.webView.setAttribute('src', nextUrl);
             } catch { }
+            try { updateNavButtons(); } catch { }
         } catch (e) {
             // Webview yükleme hatası - yoksay
             console.warn('WebView URL yükleme hatası:', e.message);
@@ -3678,6 +3694,22 @@ function updatePlatformCover(platform) {
 }
 
 function navigateBack() {
+    // Web panelinde geri/ileri/yenile butonlari WebView history'yi kontrol etmeli.
+    const isWebUi = (state.currentPanel === 'web' || state.currentPage === 'web' || state.activeMedia === 'web') && !!elements.webView;
+    if (isWebUi) {
+        try {
+            if (elements.webView.canGoBack && elements.webView.canGoBack()) {
+                elements.webView.goBack();
+            } else {
+                console.log('[RENDERER] Web history boş, geri gidilemiyor');
+            }
+        } catch (e) {
+            console.warn('[RENDERER] Web goBack hatası:', e?.message || e);
+        }
+        try { updateNavButtons(); } catch { }
+        return;
+    }
+
     console.log('navigateBack çağrıldı, history:', state.pathHistory.length, 'current:', state.currentPath);
     if (state.pathHistory.length > 0) {
         state.pathForward.push(state.currentPath || LIBRARY_ROOT_MARKER);
@@ -3695,6 +3727,21 @@ function navigateBack() {
 }
 
 function navigateForward() {
+    const isWebUi = (state.currentPanel === 'web' || state.currentPage === 'web' || state.activeMedia === 'web') && !!elements.webView;
+    if (isWebUi) {
+        try {
+            if (elements.webView.canGoForward && elements.webView.canGoForward()) {
+                elements.webView.goForward();
+            } else {
+                console.log('[RENDERER] Web forward boş, ileri gidilemiyor');
+            }
+        } catch (e) {
+            console.warn('[RENDERER] Web goForward hatası:', e?.message || e);
+        }
+        try { updateNavButtons(); } catch { }
+        return;
+    }
+
     console.log('navigateForward çağrıldı, forward:', state.pathForward.length);
     if (state.pathForward.length > 0) {
         state.pathHistory.push(state.currentPath || LIBRARY_ROOT_MARKER);
@@ -3712,9 +3759,48 @@ function navigateForward() {
 }
 
 function refreshCurrentView() {
-    if (state.currentPath) {
-        loadDirectory(state.currentPath, false);
+    const isWebUi = (state.currentPanel === 'web' || state.currentPage === 'web' || state.activeMedia === 'web') && !!elements.webView;
+    if (isWebUi) {
+        try {
+            const cur = getWebViewUrlSafe();
+            if (cur && cur !== 'about:blank') {
+                // reloadIgnoringCache is a bit more reliable for stuck pages.
+                if (typeof elements.webView.reloadIgnoringCache === 'function') {
+                    elements.webView.reloadIgnoringCache();
+                } else {
+                    elements.webView.reload();
+                }
+            }
+        } catch (e) {
+            console.warn('[RENDERER] Web reload hatası:', e?.message || e);
+        }
+        try { updateNavButtons(); } catch { }
+        return;
     }
+
+    if (state.currentPath) loadDirectory(state.currentPath, false);
+}
+
+function updateNavButtons() {
+    if (!elements.backBtn || !elements.forwardBtn || !elements.refreshBtn) return;
+
+    const isWebUi = (state.currentPanel === 'web' || state.currentPage === 'web' || state.activeMedia === 'web') && !!elements.webView;
+    if (isWebUi) {
+        let canBack = false;
+        let canFwd = false;
+        try { canBack = !!elements.webView.canGoBack?.(); } catch { }
+        try { canFwd = !!elements.webView.canGoForward?.(); } catch { }
+
+        elements.backBtn.disabled = !canBack;
+        elements.forwardBtn.disabled = !canFwd;
+        elements.refreshBtn.disabled = false;
+        return;
+    }
+
+    // Library mode: back/forward sadece klasor history varsa aktif olsun.
+    elements.backBtn.disabled = state.pathHistory.length === 0;
+    elements.forwardBtn.disabled = state.pathForward.length === 0;
+    elements.refreshBtn.disabled = false;
 }
 
 // ============================================
