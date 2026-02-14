@@ -161,6 +161,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          cache: true
           install: >-
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-cmake
@@ -172,16 +173,14 @@ jobs:
             mingw-w64-x86_64-libprojectm
 
       - name: Build Visualizer (aurivo-projectm-visualizer.exe)
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          if (!(Test-Path "native-dist")) { New-Item -ItemType Directory -Force -Path "native-dist" | Out-Null }
-          cmd /c "set PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH% && cmake -S visualizer -B build-visualizer && cmake --build build-visualizer --config Release"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item -Force "build-visualizer\aurivo-projectm-visualizer.exe" "native-dist\aurivo-projectm-visualizer.exe"
-          if (!(Test-Path "native-dist\aurivo-projectm-visualizer.exe")) {
-            Write-Host "Visualizer exe missing after build"
-            exit 1
-          }
+          set -euo pipefail
+          mkdir -p native-dist
+          cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-visualizer
+          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
+          test -f native-dist/aurivo-projectm-visualizer.exe
 
       - name: Prepare Windows resources (ffmpeg.exe + DLL copy)
         run: npm run prepare:win:resources
