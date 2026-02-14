@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "Aurivo Media Player"
-#define MyAppVersion "4.0.14"
+#define MyAppVersion "0.9.0"
 #define MyAppPublisher "Muhammet Dali"
 #define MyAppURL "https://github.com/muhammeddali1453-beep/Aurivo-Medya-Player"
 #define MyAppExeName "Aurivo.exe"
@@ -23,7 +23,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=Z:\home\muhammed-dali\Genel
-OutputBaseFilename=Aurivo_Media_Player_Setup_v4.0.14
+OutputBaseFilename=Aurivo_Media_Player_Setup_v0.9.0
 SetupIconFile=Z:\home\muhammed-dali\Aurivo-Medya-Player\icons\aurivo.ico
 Compression=lzma
 SolidCompression=yes

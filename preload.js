@@ -667,7 +667,16 @@ const aurivoAPI = {
 
     // APP CONTROL
     app: {
-        relaunch: () => ipcRenderer.invoke('app:relaunch')
+        relaunch: () => ipcRenderer.invoke('app:relaunch'),
+        // When user double-clicks a media file while the app is already running,
+        // main process forwards file paths here.
+        onOpenFiles: (callback) => {
+            ipcRenderer.on('app:open-files', (_event, filePaths) => {
+                try {
+                    callback(Array.isArray(filePaths) ? filePaths : []);
+                } catch { }
+            });
+        }
     },
 
     // I18N

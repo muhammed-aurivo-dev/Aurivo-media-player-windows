@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { registerDawlodIpc } = require('./modules/dawlodHost');
+const { fileURLToPath } = require('url');
 
 // MPRIS (Linux Medya Oynatıcı Uzaktan Arayüz Spesifikasyonu)
 let Player = null;
@@ -334,6 +335,124 @@ let mainWindow;
 let tray = null;
 let lastTrayState = { isPlaying: false, currentTrack: 'Aurivo Media Player', isMuted: false, stopAfterCurrent: false };
 let mprisPlayer = null;
+
+// ============================================
+// SINGLE INSTANCE + "OPEN WITH" FILE HANDLING
+// ============================================
+const OPEN_FILES_IPC = 'app:open-files';
+let pendingOpenFiles = [];
+
+const AUDIO_EXTS_MAIN = new Set(['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus', 'wma', 'aiff', 'ape', 'wv']);
+const VIDEO_EXTS_MAIN = new Set(['mp4', 'mkv', 'webm', 'avi', 'mov', 'wmv', 'm4v', 'flv', 'mpg', 'mpeg']);
+
+function normalizeMaybeFileArg(arg, cwd) {
+    const raw = String(arg || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('--')) return '';
+
+    // Strip quotes commonly seen in argv.
+    const unquoted = raw.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+
+    // Ignore the app executable path.
+    if (process.platform === 'win32' && /\.exe$/i.test(unquoted)) return '';
+
+    // file:// URL
+    if (/^file:\/\//i.test(unquoted)) {
+        try {
+            return fileURLToPath(unquoted);
+        } catch {
+            return '';
+        }
+    }
+
+    // Try absolute first; otherwise resolve relative to cwd (Windows sometimes passes relative).
+    if (path.isAbsolute(unquoted)) return unquoted;
+    const base = cwd || process.cwd();
+    return path.resolve(base, unquoted);
+}
+
+function isLikelyMediaFile(p) {
+    const ext = String(path.extname(p) || '').toLowerCase().replace('.', '');
+    return AUDIO_EXTS_MAIN.has(ext) || VIDEO_EXTS_MAIN.has(ext);
+}
+
+function extractOpenFilePaths(argv, cwd) {
+    const out = [];
+    const seen = new Set();
+    for (const a of argv || []) {
+        const fp = normalizeMaybeFileArg(a, cwd);
+        if (!fp) continue;
+        if (!isLikelyMediaFile(fp)) continue;
+        try {
+            if (!fs.existsSync(fp)) continue;
+            const st = fs.statSync(fp);
+            if (!st.isFile()) continue;
+        } catch {
+            continue;
+        }
+        const key = process.platform === 'win32' ? fp.toLowerCase() : fp;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(fp);
+    }
+    return out;
+}
+
+function focusMainWindow() {
+    try {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    } catch {
+        // best effort
+    }
+}
+
+function sendOpenFilesToRenderer(filePaths) {
+    const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+    if (!list.length) return;
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        pendingOpenFiles.push(...list);
+        return;
+    }
+
+    try {
+        mainWindow.webContents.send(OPEN_FILES_IPC, list);
+    } catch (e) {
+        // Renderer not ready yet; queue once.
+        pendingOpenFiles.push(...list);
+    }
+}
+
+// Single instance: if user double-clicks a media file while the app is running,
+// Windows will start a second process with the file path in argv. We must redirect
+// it to the existing window.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (_event, argv, workingDir) => {
+        const files = extractOpenFilePaths(argv, workingDir || process.cwd());
+        focusMainWindow();
+        sendOpenFilesToRenderer(files);
+    });
+
+    // First instance: launched via "Open with" passes file path in argv too.
+    try {
+        pendingOpenFiles = extractOpenFilePaths(process.argv, process.cwd());
+    } catch {
+        pendingOpenFiles = [];
+    }
+
+    // macOS: Finder "open" event
+    app.on('open-file', (event, filePath) => {
+        try { event.preventDefault(); } catch { }
+        focusMainWindow();
+        sendOpenFilesToRenderer([filePath]);
+    });
+}
 
 function getResourcePath(relPath) {
     // Dev: doğrudan repo içinden
@@ -1113,6 +1232,19 @@ function createWindow() {
                 console.warn('[NativeAudio] init error:', e?.message || e);
             }
         }, 0);
+
+        // "Open with" queue: send file(s) requested at startup or via second-instance
+        try {
+            if (Array.isArray(pendingOpenFiles) && pendingOpenFiles.length) {
+                const files = [...new Set(pendingOpenFiles.filter(Boolean))];
+                pendingOpenFiles = [];
+                if (files.length) {
+                    mainWindow.webContents.send(OPEN_FILES_IPC, files);
+                }
+            }
+        } catch (e) {
+            console.warn('[APP] pending open-files flush failed:', e?.message || e);
+        }
     });
     setTimeout(() => {
         if (mainWindow && !mainWindow.isVisible()) {
@@ -2179,7 +2311,7 @@ function installTlsCompatibilityForWebPlatforms() {
     });
 }
 
-app.whenReady().then(async () => {
+if (gotSingleInstanceLock) app.whenReady().then(async () => {
     // GPU ayarları burada uygula
     app.commandLine.appendSwitch('enable-gpu-rasterization');
     app.commandLine.appendSwitch('enable-zero-copy');

@@ -1,6 +1,6 @@
 {
   "name": "aurivo-media-player",
-  "version": "4.0.14",
+  "version": "0.9.0",
   "description": "Aurivo Media Player - Electron App",
   "main": "main.js",
   "scripts": {
@@ -189,14 +189,14 @@
           "from": "icons/aurivo.ico",
           "to": "icons/aurivo.ico"
         },
-          {
-            "from": "icons/aurivo_256.png",
-            "to": "icons/aurivo_256.png"
-          },
-          {
-            "from": "icons/aurivo_512.png",
-            "to": "icons/aurivo_512.png"
-          },
+        {
+          "from": "icons/aurivo_256.png",
+          "to": "icons/aurivo_256.png"
+        },
+        {
+          "from": "icons/aurivo_512.png",
+          "to": "icons/aurivo_512.png"
+        },
         {
           "from": "icons/aurivo_logo.bmp",
           "to": "icons/aurivo_logo.bmp"
@@ -234,17 +234,17 @@
         }
       ]
     },
-      "nsis": {
-        "oneClick": false,
-        "perMachine": false,
-        "allowToChangeInstallationDirectory": true,
-        "createDesktopShortcut": true,
-        "createStartMenuShortcut": true,
-        "shortcutName": "Aurivo",
-        "installerIcon": "icons/aurivo.ico",
-        "uninstallerIcon": "icons/aurivo.ico",
-        "installerHeaderIcon": "icons/aurivo.ico"
-      }
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aurivo",
+      "installerIcon": "icons/aurivo.ico",
+      "uninstallerIcon": "icons/aurivo.ico",
+      "installerHeaderIcon": "icons/aurivo.ico"
+    }
   },
   "devDependencies": {
     "electron": "^28.3.3",
@@ -258,5 +258,3 @@
     "yt-dlp-wrap-plus": "^2.4.3"
   }
 }
-
-

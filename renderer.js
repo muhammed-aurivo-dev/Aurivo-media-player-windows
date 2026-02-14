@@ -337,6 +337,95 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await initializeI18n();
 
+    // "Open with" / ikinci instance: disaridan acilan dosyalari mevcut instance'a ekle ve cal.
+    try {
+        if (window.aurivo?.app?.onOpenFiles) {
+            window.aurivo.app.onOpenFiles(async (filePaths) => {
+                const paths = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+                if (!paths.length) return;
+
+                // Prefer the first file as the "play now" target.
+                const target = String(paths[0] || '').trim();
+                const name = window.aurivo?.path?.basename?.(target) || target.split(/[\\/]/).pop();
+                const isVideo = isVideoFile(name);
+
+                // Switch UI to correct section
+                if (isVideo) {
+                    setActiveSidebarByPage('video');
+                    state.currentPage = 'video';
+                    state.currentPanel = 'library';
+                    switchPage('video');
+                    isolateMediaSection('video');
+                    try {
+                        // Keep a minimal video list
+                        if (!Array.isArray(state.videoFiles)) state.videoFiles = [];
+                        if (!state.videoFiles.find(v => v.path === target)) {
+                            state.videoFiles = [{ path: target, name }];
+                        }
+                        playVideo(target);
+                    } catch (e) {
+                        console.warn('[OPENFILES] playVideo error:', e?.message || e);
+                    }
+                    return;
+                }
+
+                // Audio: append only the selected file(s), do not auto-import whole folders.
+                setActiveSidebarByPage('music');
+                state.currentPage = 'music';
+                state.currentPanel = 'library';
+                switchPage('music');
+                isolateMediaSection('music');
+
+                const prevDefer = state.deferPlaylistSort;
+                state.deferPlaylistSort = true;
+                let playIdx = -1;
+                try {
+                    for (const p of paths) {
+                        const fp = String(p || '').trim();
+                        if (!fp) continue;
+                        // best-effort exists check (async)
+                        try {
+                            if (window.aurivo?.fileExists) {
+                                const ok = await window.aurivo.fileExists(fp);
+                                if (!ok) continue;
+                            }
+                        } catch { }
+
+                        const base = window.aurivo?.path?.basename?.(fp) || fp.split(/[\\/]/).pop();
+                        const { index, added } = addToPlaylist(fp, base);
+                        if (fp === target) {
+                            // if already existed, find its index too
+                            playIdx = (index >= 0) ? index : state.playlist.findIndex(i => i.path === fp);
+                        } else if (playIdx === -1 && fp === target) {
+                            playIdx = index;
+                        }
+                    }
+                } finally {
+                    state.deferPlaylistSort = prevDefer;
+                }
+
+                if (state.autoSortPlaylist && !state.deferPlaylistSort) {
+                    sortPlaylistByName(state.playlistSortOrder || 'asc');
+                    // Re-find after sort
+                    if (target) {
+                        const idx2 = state.playlist.findIndex(i => i.path === target);
+                        if (idx2 >= 0) playIdx = idx2;
+                    }
+                }
+
+                if (playIdx >= 0) {
+                    playIndex(playIdx);
+                } else if (target) {
+                    // Fallback: try to play first playlist item
+                    const idx3 = state.playlist.findIndex(i => i.path === target);
+                    if (idx3 >= 0) playIndex(idx3);
+                }
+            });
+        }
+    } catch {
+        // ignore
+    }
+
     // Oynatıcı çubuğu görünürlüğünü kontrol et
     const playerBar = document.getElementById('playerBar');
     if (playerBar) {

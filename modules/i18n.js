@@ -76,6 +76,10 @@
 
     function deepGet(obj, path) {
         if (!obj || typeof obj !== 'object') return undefined;
+        // Support "flat" locale files where keys include dots:
+        // { "sfx.windowTitle": "..." }
+        // Prefer direct match first, then fall back to nested traversal.
+        if (Object.prototype.hasOwnProperty.call(obj, path)) return obj[path];
         const parts = String(path).split('.').filter(Boolean);
         let cur = obj;
         for (const p of parts) {
