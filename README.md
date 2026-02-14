@@ -2,6 +2,18 @@
 
 Windows odakli depo. Linux surumu ayri repoda tutulur.
 
+## Screenshots
+
+<details>
+<summary>Goster / Gizle</summary>
+
+![Aurivo Screenshot 1](screenshots/shot-2026-02-15-003111.png)
+![Aurivo Screenshot 2](screenshots/shot-2026-02-15-003343.png)
+![Aurivo Screenshot 3](screenshots/shot-2026-02-15-004004.png)
+![Aurivo Screenshot 4](screenshots/shot-2026-02-15-004840.png)
+
+</details>
+
 ## Yeni Ozellikler (2026-02-14)
 - Aurivo-Dawlod indirici modulu uygulamaya entegre edildi (yan sekmeden acilir).
 - Surukle-birak davranisi duzeltildi: klasor taramasi tetiklemez, sadece birakilan dosyalari ekler.
