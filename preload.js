@@ -4,14 +4,23 @@
 // Sürüm 2.1 - Tüm Ses Main Process IPC üzerinden
 // ============================================
 
-console.log('[PRELOAD] Script başlıyor...');
+const AURIVO_VERBOSE_LOGS =
+    typeof process !== 'undefined' &&
+    process?.env &&
+    process.env.AURIVO_VERBOSE_LOGS === '1';
+
+const preloadLog = (...args) => {
+    if (AURIVO_VERBOSE_LOGS) console.log(...args);
+};
+
+preloadLog('[PRELOAD] Script basliyor...');
 
 const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const path = require('path');
 const os = require('os');
 const { pathToFileURL } = require('url');
 
-console.log('[PRELOAD] Electron modülleri yüklendi');
+preloadLog('[PRELOAD] Electron modulleri yuklendi');
 
 // ============================================
 // Native Audio artık SADECE Main Process'te!
@@ -609,31 +618,17 @@ const aurivoAPI = {
         }
     },
 
-    // Download API (Aurivo-Dawlod / yt-dlp)
-    download: {
-        start: (options) => ipcRenderer.invoke('download:start', options),
-        cancel: (id) => ipcRenderer.invoke('download:cancel', id),
-        onLog: (callback) => {
-            const handler = (_event, payload) => callback(payload);
-            ipcRenderer.on('download:log', handler);
-            return () => ipcRenderer.removeListener('download:log', handler);
-        },
-        onProgress: (callback) => {
-            const handler = (_event, payload) => callback(payload);
-            ipcRenderer.on('download:progress', handler);
-            return () => ipcRenderer.removeListener('download:progress', handler);
-        },
-        onDone: (callback) => {
-            const handler = (_event, payload) => callback(payload);
-            ipcRenderer.on('download:done', handler);
-            return () => ipcRenderer.removeListener('download:done', handler);
-        }
+    // Aurivo-Dawlod downloader window
+    dawlod: {
+        openWindow: () => ipcRenderer.invoke('dawlod:openWindow'),
+        setLocale: (lang) => ipcRenderer.invoke('dawlod:setLocale', lang)
     },
 
     // Web Security / Privacy helpers
     webSecurity: {
         openExternal: (url) => ipcRenderer.invoke('web:openExternal', url),
-        clearData: (options) => ipcRenderer.invoke('web:clearData', options)
+        clearData: (options) => ipcRenderer.invoke('web:clearData', options),
+        getSecurityState: () => ipcRenderer.invoke('web:getSecurityState')
     },
 
     // C++ AUDIO ENGINE API (IPC-Based)
@@ -677,7 +672,8 @@ const aurivoAPI = {
 
     // I18N
     i18n: {
-        loadLocale: (lang) => ipcRenderer.invoke('i18n:loadLocale', lang)
+        loadLocale: (lang) => ipcRenderer.invoke('i18n:loadLocale', lang),
+        getSystemLocale: () => ipcRenderer.invoke('get-system-locale')
     },
 
     // SYSTEM TRAY MEDIA CONTROL LISTENER
@@ -726,13 +722,13 @@ const aurivoAPI = {
     }
 };
 
-console.log('[PRELOAD] aurivoAPI objesi oluşturuldu');
-console.log('[PRELOAD] API anahtarları:', Object.keys(aurivoAPI));
+preloadLog('[PRELOAD] aurivoAPI objesi olusturuldu');
+preloadLog('[PRELOAD] API anahtarlari:', Object.keys(aurivoAPI));
 
 // Global fallback
 try {
     globalThis.aurivo = aurivoAPI;
-    console.log('[PRELOAD] globalThis.aurivo atandı');
+    preloadLog('[PRELOAD] globalThis.aurivo atandi');
 } catch (e) {
     console.error('[PRELOAD] globalThis hata:', e.message);
 }
@@ -740,7 +736,7 @@ try {
 // contextBridge ile güvenli expose
 try {
     contextBridge.exposeInMainWorld('aurivo', aurivoAPI);
-    console.log('[PRELOAD] ✓ contextBridge.exposeInMainWorld başarılı');
+    preloadLog('[PRELOAD] contextBridge.exposeInMainWorld basarili');
 } catch (e) {
     console.error('[PRELOAD] contextBridge hata:', e.message);
 }
@@ -754,22 +750,17 @@ const appAPI = {
 
 try {
     globalThis.app = appAPI;
-    console.log('[PRELOAD] globalThis.app atandı');
+    preloadLog('[PRELOAD] globalThis.app atandi');
 } catch (e) {
     console.error('[PRELOAD] globalThis.app hata:', e.message);
 }
 
 try {
     contextBridge.exposeInMainWorld('app', appAPI);
-    console.log('[PRELOAD] ✓ contextBridge.exposeInMainWorld (app) başarılı');
+    preloadLog('[PRELOAD] contextBridge.exposeInMainWorld (app) basarili');
 } catch (e) {
     console.error('[PRELOAD] contextBridge (app) hata:', e.message);
 }
 
-// Başlangıç Logu
-console.log('═══════════════════════════════════════');
-console.log('  AURIVO MEDIA PLAYER - Preload v2.1');
-console.log('  ✓ IPC-Based Audio (Main Process)');
-console.log('═══════════════════════════════════════');
-console.log(`  Platform: ${process.platform}`);
-console.log('═══════════════════════════════════════');
+// Başlangıç logu (sade)
+console.log(`[PRELOAD] ready | platform=${process.platform}`);

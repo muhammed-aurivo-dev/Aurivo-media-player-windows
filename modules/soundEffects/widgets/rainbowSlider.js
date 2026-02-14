@@ -27,7 +27,9 @@ class RainbowSlider {
         
         // Start animation loop
         this.lastTime = performance.now();
-        requestAnimationFrame((t) => this.animate(t));
+        this._running = false;
+        this._rafId = null;
+        this.startAnimation();
     }
 
     setRange(min, max) {
@@ -161,7 +163,34 @@ class RainbowSlider {
         this.setValue(target);
     }
     
+    startAnimation() {
+        if (this._running) return;
+        this._running = true;
+        this.lastTime = performance.now();
+        this._rafId = requestAnimationFrame((t) => this.animate(t));
+    }
+
+    stopAnimation() {
+        this._running = false;
+        if (this._rafId !== null) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = null;
+        }
+    }
+
+    setActive(active) {
+        if (active) this.startAnimation();
+        else this.stopAnimation();
+    }
+
+    destroy() {
+        this.stopAnimation();
+        window.removeEventListener('mousemove', this.handleWindowMouseMove);
+        window.removeEventListener('mouseup', this.handleWindowMouseUp);
+    }
+
     animate(timestamp) {
+        if (!this._running) return;
         const dt = timestamp - this.lastTime;
         
         // C++: Every 50ms, shift += 0.02.
@@ -188,7 +217,7 @@ class RainbowSlider {
         this.lastTime = timestamp;
         this.draw();
         
-        requestAnimationFrame((t) => this.animate(t));
+        this._rafId = requestAnimationFrame((t) => this.animate(t));
     }
     
     hsvToRgb(h, s, v, a = 255) {

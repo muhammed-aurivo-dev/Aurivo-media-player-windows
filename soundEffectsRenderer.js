@@ -210,6 +210,24 @@ function tSync(key, vars) {
     return String(key);
 }
 
+function tOr(key, fallback) {
+    const v = tSync(key);
+    return v && v !== key ? v : fallback;
+}
+
+function getKnobLabel(effectName, param, fallback) {
+    const p = String(param || '');
+    const specificKey = `sfx.knob.${effectName}.${p}`;
+    const specific = tSync(specificKey);
+    if (specific && specific !== specificKey) return specific;
+
+    // PEQ gibi band0_freq -> freq normalizasyonu
+    const m = p.match(/^band\d+_(.+)$/i);
+    const normalized = m ? m[1] : p;
+    const genericKey = `sfx.knob.param.${normalized}`;
+    return tOr(genericKey, fallback);
+}
+
 function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (ch) => {
         switch (ch) {
@@ -324,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     z-index: 10000;
                     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
                 `;
-                warningDiv.textContent = '⚠️ Ses Efektleri Kullanılamıyor: Native Audio Engine yüklenmedi. Temel ses oynatma çalışıyor.';
+                warningDiv.textContent = tSync('sfx.nativeUnavailable');
                 document.body.appendChild(warningDiv);
                 setTimeout(() => warningDiv.remove(), 8000);
                 console.warn('[SFX] Native audio unavailable - sound effects disabled');
@@ -412,12 +430,19 @@ function setupEventListeners() {
         document.getElementById('tabEffects').classList.add('active');
         document.getElementById('tabPresets').classList.remove('active');
         document.getElementById('effectsSidebar').style.display = 'block';
+        setEffectAnimationsActive(SFX.currentEffect, true);
     });
 
     document.getElementById('tabPresets')?.addEventListener('click', () => {
         document.getElementById('tabPresets').classList.add('active');
         document.getElementById('tabEffects').classList.remove('active');
+        pauseAllEffectAnimations();
         // TODO: Ön ayarlar panelini göster
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) pauseAllEffectAnimations();
+        else setEffectAnimationsActive(SFX.currentEffect, true);
     });
 
     // Window controls (frameless pencere için)
@@ -450,6 +475,48 @@ function setupEventListeners() {
 // ============================================
 // EFFECT SWITCHING
 // ============================================
+
+function setEffectAnimationsActive(effectName, active) {
+    if (!effectName) return;
+
+    // Generic knobs (effectName_*) + eq32 direct knobs (bass/mid/treble/stereoExpander)
+    Object.entries(SFX.knobInstances).forEach(([key, inst]) => {
+        const isEq32Direct = effectName === 'eq32' && ['bass', 'mid', 'treble', 'stereoExpander'].includes(key);
+        if (key.startsWith(`${effectName}_`) || isEq32Direct) {
+            if (inst && typeof inst.setActive === 'function') inst.setActive(active);
+            else if (inst && typeof inst.stopAnimation === 'function' && !active) inst.stopAnimation();
+            else if (inst && typeof inst.startAnimation === 'function' && active) inst.startAnimation();
+        }
+    });
+
+    if (effectName === 'eq32') {
+        (SFX.eqSliders || []).forEach((slider) => {
+            if (slider && typeof slider.setActive === 'function') slider.setActive(active);
+            else if (slider && typeof slider.stopAnimation === 'function' && !active) slider.stopAnimation();
+            else if (slider && typeof slider.startAnimation === 'function' && active) slider.startAnimation();
+        });
+        if (SFX.eqResponse) {
+            if (typeof SFX.eqResponse.setActive === 'function') SFX.eqResponse.setActive(active);
+            else if (typeof SFX.eqResponse.stopAnimation === 'function' && !active) SFX.eqResponse.stopAnimation();
+            else if (typeof SFX.eqResponse.startAnimation === 'function' && active) SFX.eqResponse.startAnimation();
+        }
+    }
+}
+
+function pauseAllEffectAnimations() {
+    Object.values(SFX.knobInstances).forEach((inst) => {
+        if (inst && typeof inst.setActive === 'function') inst.setActive(false);
+        else if (inst && typeof inst.stopAnimation === 'function') inst.stopAnimation();
+    });
+    (SFX.eqSliders || []).forEach((slider) => {
+        if (slider && typeof slider.setActive === 'function') slider.setActive(false);
+        else if (slider && typeof slider.stopAnimation === 'function') slider.stopAnimation();
+    });
+    if (SFX.eqResponse) {
+        if (typeof SFX.eqResponse.setActive === 'function') SFX.eqResponse.setActive(false);
+        else if (typeof SFX.eqResponse.stopAnimation === 'function') SFX.eqResponse.stopAnimation();
+    }
+}
 
 // Tüm efekt panellerini başlangıçta oluştur - DOM'da kalıcı olacaklar
 function createAllEffectPanels() {
@@ -504,14 +571,25 @@ function unloadEffectPanel(effectName) {
 
     // Instance referanslarını bırak
     if (effectName === 'eq32') {
+        SFX.eqSliders.forEach((slider) => {
+            if (slider && typeof slider.destroy === 'function') slider.destroy();
+            else if (slider && typeof slider.stopAnimation === 'function') slider.stopAnimation();
+        });
         SFX.eqSliders = [];
+
+        if (SFX.eqResponse) {
+            if (typeof SFX.eqResponse.destroy === 'function') SFX.eqResponse.destroy();
+            else if (typeof SFX.eqResponse.stopAnimation === 'function') SFX.eqResponse.stopAnimation();
+        }
         SFX.barAnalyzer = null;
         SFX.eqResponse = null;
 
-        delete SFX.knobInstances['bass'];
-        delete SFX.knobInstances['mid'];
-        delete SFX.knobInstances['treble'];
-        delete SFX.knobInstances['stereoExpander'];
+        ['bass', 'mid', 'treble', 'stereoExpander'].forEach((k) => {
+            const inst = SFX.knobInstances[k];
+            if (inst && typeof inst.destroy === 'function') inst.destroy();
+            else if (inst && typeof inst.stopAnimation === 'function') inst.stopAnimation();
+            delete SFX.knobInstances[k];
+        });
 
         // eq32 yeniden açılınca kontroller tekrar init edilsin
         eq32ControlsInitialized = false;
@@ -519,7 +597,12 @@ function unloadEffectPanel(effectName) {
 
     // Generic knobs: effectName_ ile başlayanları sil
     Object.keys(SFX.knobInstances).forEach(k => {
-        if (k.startsWith(`${effectName}_`)) delete SFX.knobInstances[k];
+        if (k.startsWith(`${effectName}_`)) {
+            const inst = SFX.knobInstances[k];
+            if (inst && typeof inst.destroy === 'function') inst.destroy();
+            else if (inst && typeof inst.stopAnimation === 'function') inst.stopAnimation();
+            delete SFX.knobInstances[k];
+        }
     });
 
     wrapper.innerHTML = '';
@@ -582,6 +665,10 @@ function showEffect(effectName) {
     if (effectName === 'peq') {
         setupPEQFilterTypeListeners();
     }
+
+    // Yalnız aktif efektin ışık/animasyon döngüsü çalışsın
+    pauseAllEffectAnimations();
+    setEffectAnimationsActive(effectName, true);
 
     SFX.currentEffect = effectName;
 
@@ -1455,12 +1542,12 @@ function getConvReverbTemplate() {
             </div>
             
             <div class="presets-section">
-                <div class="presets-title">📁 IR Presetleri</div>
+                <div class="presets-title">📁 ${tSync('sfx.convreverb.irPresets')}</div>
                 <div class="presets-buttons">
-                    <button class="preset-btn ${settings.preset === 'hall' ? 'active' : ''}" data-preset="hall" onclick="selectIRPreset('hall')">🏛️ Concert Hall</button>
-                    <button class="preset-btn ${settings.preset === 'church' ? 'active' : ''}" data-preset="church" onclick="selectIRPreset('church')">⛪ Church</button>
-                    <button class="preset-btn ${settings.preset === 'room' ? 'active' : ''}" data-preset="room" onclick="selectIRPreset('room')">🏠 Room</button>
-                    <button class="preset-btn ${settings.preset === 'plate' ? 'active' : ''}" data-preset="plate" onclick="selectIRPreset('plate')">🔲 Plate</button>
+                    <button class="preset-btn ${settings.preset === 'hall' ? 'active' : ''}" data-preset="hall" onclick="selectIRPreset('hall')">🏛️ ${tSync('sfx.convreverb.presets.hall')}</button>
+                    <button class="preset-btn ${settings.preset === 'church' ? 'active' : ''}" data-preset="church" onclick="selectIRPreset('church')">⛪ ${tSync('sfx.convreverb.presets.church')}</button>
+                    <button class="preset-btn ${settings.preset === 'room' ? 'active' : ''}" data-preset="room" onclick="selectIRPreset('room')">🏠 ${tSync('sfx.convreverb.presets.room')}</button>
+                    <button class="preset-btn ${settings.preset === 'plate' ? 'active' : ''}" data-preset="plate" onclick="selectIRPreset('plate')">🔲 ${tSync('sfx.convreverb.presets.plate')}</button>
                 </div>
             </div>
             
@@ -1570,8 +1657,8 @@ function getPEQTemplate() {
 	        <div class="effect-panel" id="peqPanel">
 	            <div class="effect-header">
 	                <div class="effect-title-section">
-	                    <h2 class="effect-title">📊 Parametrik EQ (6-Band)</h2>
-	                    <p class="effect-description">6-band full parametric EQ with filter type selection</p>
+	                    <h2 class="effect-title">📊 ${tSync('sfx.peq.title')}</h2>
+	                    <p class="effect-description">${tSync('sfx.peq.description')}</p>
 	                </div>
 	                <div class="effect-actions">
 	                    <label class="enable-toggle">
@@ -1583,12 +1670,12 @@ function getPEQTemplate() {
 	            </div>
             
             <div class="peq-bands-container" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top: 16px;">
-                ${generateBandKnobs(0, 'Sub-Bass', 20, 200, 60)}
-                ${generateBandKnobs(1, 'Bass', 50, 500, 150)}
-                ${generateBandKnobs(2, 'Low-Mid', 200, 2000, 400)}
-                ${generateBandKnobs(3, 'Mid', 500, 5000, 1500)}
-                ${generateBandKnobs(4, 'High-Mid', 2000, 10000, 5000)}
-                ${generateBandKnobs(5, 'High', 5000, 20000, 12000)}
+                ${generateBandKnobs(0, tSync('sfx.peq.bands.subBass'), 20, 200, 60)}
+                ${generateBandKnobs(1, tSync('sfx.peq.bands.bass'), 50, 500, 150)}
+                ${generateBandKnobs(2, tSync('sfx.peq.bands.lowMid'), 200, 2000, 400)}
+                ${generateBandKnobs(3, tSync('sfx.peq.bands.mid'), 500, 5000, 1500)}
+                ${generateBandKnobs(4, tSync('sfx.peq.bands.highMid'), 2000, 10000, 5000)}
+                ${generateBandKnobs(5, tSync('sfx.peq.bands.high'), 5000, 20000, 12000)}
             </div>
 
 	            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
@@ -1729,12 +1816,12 @@ function getTruePeakTemplate() {
                 
                 <!-- Clipping Counter -->
                 <div class="clipping-section" style="display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.2); border-radius: 8px;">
-                    <span style="color: #f44336;">⚠️ Clipping:</span>
+                    <span style="color: #f44336;">${tSync('sfx.truepeak.clipping')}</span>
                     <span id="truepeakClipCount" style="font-size: 18px; font-weight: 700; color: #f44336; min-width: 50px;">0</span>
-                    <button id="resetClipBtn" style="padding: 6px 12px; background: #f44336; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px;">Reset</button>
+                    <button id="resetClipBtn" style="padding: 6px 12px; background: #f44336; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px;">${tSync('sfx.ui.reset')}</button>
                     
                     <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                        <span style="color: #00bcd4; font-size: 13px;">📉 GR:</span>
+                        <span style="color: #00bcd4; font-size: 13px;">${tSync('sfx.truepeak.gainReduction')}</span>
                         <span id="truepeakGainReduction" style="font-size: 16px; font-weight: 700; color: #00bcd4; min-width: 70px;">0.0 dB</span>
                     </div>
                 </div>
@@ -1743,7 +1830,7 @@ function getTruePeakTemplate() {
             <!-- Oversampling & Link Options -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; flex-wrap: wrap; gap: 12px;">
                 <div class="oversampling-selector" style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #aaa; font-size: 13px;">Oversampling:</span>
+                    <span style="color: #aaa; font-size: 13px;">${tSync('sfx.truepeak.oversampling')}</span>
                     <button class="os-btn ${settings.oversampling === 2 ? 'active' : ''}" data-rate="2" style="padding: 6px 12px; border: 1px solid #444; border-radius: 4px; background: ${settings.oversampling === 2 ? '#0099ff' : '#222'}; color: #fff; cursor: pointer;">2x</button>
                     <button class="os-btn ${settings.oversampling === 4 ? 'active' : ''}" data-rate="4" style="padding: 6px 12px; border: 1px solid #444; border-radius: 4px; background: ${settings.oversampling === 4 ? '#0099ff' : '#222'}; color: #fff; cursor: pointer;">4x</button>
                     <button class="os-btn ${settings.oversampling === 8 ? 'active' : ''}" data-rate="8" style="padding: 6px 12px; border: 1px solid #444; border-radius: 4px; background: ${settings.oversampling === 8 ? '#0099ff' : '#222'}; color: #fff; cursor: pointer;">8x</button>
@@ -1881,22 +1968,21 @@ function getCrossfeedTemplate() {
             
             <!-- Info Panel -->
             <div class="crossfeed-info-panel" style="margin-top: 20px; padding: 20px; background: rgba(0, 212, 255, 0.05); border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 12px;">
-                <h3 style="color: #00d4ff; margin-bottom: 10px; font-size: 14px;">ℹ️ Crossfeed Nedir?</h3>
+                <h3 style="color: #00d4ff; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.crossfeed.info.title')}</h3>
                 <p style="color: #aaa; font-size: 13px; line-height: 1.6; margin-bottom: 10px;">
-                    Kulaklıkta dinlerken, sol kulak sadece sol kanalı, sağ kulak sadece sağ kanalı duyar.
-                    Bu doğal değildir! Hoparlörlerde ise sol kulak her iki kanalı da duyar (hafifçe).
+                    ${tSync('sfx.crossfeed.info.body1')}
                 </p>
                 <p style="color: #aaa; font-size: 13px; line-height: 1.6; margin-bottom: 10px;">
-                    <strong style="color: #00d4ff;">Crossfeed</strong> bu doğal karışımı simüle eder:
+                    <strong style="color: #00d4ff;">${tSync('sfx.effects.crossfeed')}</strong> ${tSync('sfx.crossfeed.info.body2')}
                 </p>
                 <ul style="list-style: none; padding-left: 0; margin-bottom: 10px;">
-                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ Stereo yorgunluğunu azaltır</li>
-                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ Daha doğal soundstage</li>
-                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ Uzun dinlemelerde konfor</li>
-                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ Hoparlör benzeri deneyim</li>
+                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ ${tSync('sfx.crossfeed.info.benefit1')}</li>
+                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ ${tSync('sfx.crossfeed.info.benefit2')}</li>
+                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ ${tSync('sfx.crossfeed.info.benefit3')}</li>
+                    <li style="color: #888; font-size: 12px; margin-bottom: 5px;">✅ ${tSync('sfx.crossfeed.info.benefit4')}</li>
                 </ul>
                 <p style="color: #ffeb3b; font-size: 12px; margin-top: 15px; padding: 10px; background: rgba(255, 235, 59, 0.1); border-radius: 6px;">
-                    ⚠️ <strong>Not:</strong> Sadece kulaklık ile dinlerken kullanın! Hoparlörde gereksizdir.
+                    ⚠️ <strong>${tSync('sfx.crossfeed.info.noteLabel')}</strong> ${tSync('sfx.crossfeed.info.noteBody')}
                 </p>
             </div>
         </div>
@@ -1933,11 +2019,11 @@ function getBassMonoTemplate() {
             <div class="bass-mono-presets" style="margin-bottom: 20px;">
                 <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="preset-btn" onclick="applyBassMonoPreset('vinyl')">💿 Vinyl Safe</button>
-                    <button class="preset-btn" onclick="applyBassMonoPreset('club')">🎧 Club System</button>
-                    <button class="preset-btn" onclick="applyBassMonoPreset('mastering')">🎚️ Mastering</button>
-                    <button class="preset-btn" onclick="applyBassMonoPreset('dj')">🎛️ DJ Mix</button>
-                    <button class="preset-btn" onclick="applyBassMonoPreset('sub')">🔊 Sub Only</button>
+                    <button class="preset-btn" onclick="applyBassMonoPreset('vinyl')">💿 ${tSync('sfx.bassmono.presets.vinyl')}</button>
+                    <button class="preset-btn" onclick="applyBassMonoPreset('club')">🎧 ${tSync('sfx.bassmono.presets.club')}</button>
+                    <button class="preset-btn" onclick="applyBassMonoPreset('mastering')">🎚️ ${tSync('sfx.bassmono.presets.mastering')}</button>
+                    <button class="preset-btn" onclick="applyBassMonoPreset('dj')">🎛️ ${tSync('sfx.bassmono.presets.dj')}</button>
+                    <button class="preset-btn" onclick="applyBassMonoPreset('sub')">🔊 ${tSync('sfx.bassmono.presets.sub')}</button>
                 </div>
             </div>
 
@@ -1955,7 +2041,7 @@ function getBassMonoTemplate() {
                 </div>
                 
                 <div class="slope-selector" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    <label style="color: #aaa; font-size: 12px; margin-bottom: 8px;">Slope (Diklik)</label>
+                    <label style="color: #aaa; font-size: 12px; margin-bottom: 8px;">${tSync('sfx.bassmono.slopeLabel')}</label>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
                         <button class="slope-btn ${settings.slope === 12 ? 'active' : ''}" data-slope="12">12 dB/oct</button>
                         <button class="slope-btn ${settings.slope === 24 ? 'active' : ''}" data-slope="24">24 dB/oct</button>
@@ -1977,11 +2063,8 @@ function getBassMonoTemplate() {
 
             <!-- Info Panel -->
             <div class="bass-mono-info-panel" style="margin-top: 20px; padding: 15px; background: rgba(255, 0, 128, 0.05); border: 1px solid rgba(255, 0, 128, 0.2); border-radius: 8px;">
-                <h3 style="color: #ff0080; font-size: 14px; margin-bottom: 5px;">ℹ️ Bass Mono Nedir?</h3>
-                <p style="color: #aaa; font-size: 12px; line-height: 1.5;">
-                    Belirli bir frekansın (Cutoff) altındaki sesleri Mono'ya (L+R)/2 çevirir. Bu, kulüp sistemlerinde daha güçlü bas,
-                    vinyl baskıda iğne atlamasını önleme ve genel miks netliği sağlar.
-                </p>
+                <h3 style="color: #ff0080; font-size: 14px; margin-bottom: 5px;">${tSync('sfx.bassmono.info.title')}</h3>
+                <p style="color: #aaa; font-size: 12px; line-height: 1.5;">${tSync('sfx.bassmono.info.body')}</p>
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
@@ -2014,14 +2097,14 @@ function getDynamicEQTemplate() {
             <div class="dynamiceq-presets" style="margin-bottom: 20px;">
                 <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('deharsh')">✨ De-Harsh (3-5kHz)</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('demud')">🎯 De-Mud (200-400Hz)</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('vocal')">🎤 Vocal Presence</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('deesser')">🔇 Dynamic De-esser</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('basstighten')">🎸 Bass Tighten</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('air')">🌬️ Air Sparkle</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('drumsnap')">🥁 Drum Snap</button>
-                    <button class="preset-btn" onclick="applyDynamicEQPreset('warmth')">🔥 Analog Warmth</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('deharsh')">✨ ${tSync('sfx.dynamiceq.presets.deharsh')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('demud')">🎯 ${tSync('sfx.dynamiceq.presets.demud')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('vocal')">🎤 ${tSync('sfx.dynamiceq.presets.vocal')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('deesser')">🔇 ${tSync('sfx.dynamiceq.presets.deesser')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('basstighten')">🎸 ${tSync('sfx.dynamiceq.presets.basstighten')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('air')">🌬️ ${tSync('sfx.dynamiceq.presets.air')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('drumsnap')">🥁 ${tSync('sfx.dynamiceq.presets.drumsnap')}</button>
+                    <button class="preset-btn" onclick="applyDynamicEQPreset('warmth')">🔥 ${tSync('sfx.dynamiceq.presets.warmth')}</button>
                 </div>
             </div>
 
@@ -2107,11 +2190,8 @@ function getDynamicEQTemplate() {
 
             <!-- Info Panel -->
             <div class="dynamiceq-info-panel" style="margin-top: 20px; padding: 15px; background: rgba(0, 128, 255, 0.05); border: 1px solid rgba(0, 128, 255, 0.2); border-radius: 8px;">
-                <h3 style="color: #0080ff; font-size: 14px; margin-bottom: 5px;">ℹ️ Dynamic EQ Nedir?</h3>
-                <p style="color: #aaa; font-size: 12px; line-height: 1.5;">
-                    Seçilen frekans bandının seviyesi threshold'u aştığında otomatik olarak EQ uygular. 
-                    Negatif gain ile "de-harsh" (sert sesleri yumuşatma), pozitif gain ile dinamik boost yapabilirsiniz.
-                </p>
+                <h3 style="color: #0080ff; font-size: 14px; margin-bottom: 5px;">${tSync('sfx.dynamiceq.info.title')}</h3>
+                <p style="color: #aaa; font-size: 12px; line-height: 1.5;">${tSync('sfx.dynamiceq.info.body')}</p>
             </div>
             
             <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
@@ -2143,10 +2223,10 @@ function getTapeSatTemplate() {
             <div class="tapesat-presets" style="margin-bottom: 20px;">
                 <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="preset-btn" onclick="applyTapeSatPreset('subtle')">✨ Subtle Warmth</button>
-                    <button class="preset-btn" onclick="applyTapeSatPreset('glue')">🧤 Mastering Glue</button>
-                    <button class="preset-btn" onclick="applyTapeSatPreset('crisp')">🧊 Crisp Tape</button>
-                    <button class="preset-btn" onclick="applyTapeSatPreset('lofi')">📻 Lo-fi Tape</button>
+                    <button class="preset-btn" onclick="applyTapeSatPreset('subtle')">✨ ${tSync('sfx.tapesat.presets.subtle')}</button>
+                    <button class="preset-btn" onclick="applyTapeSatPreset('glue')">🧤 ${tSync('sfx.tapesat.presets.glue')}</button>
+                    <button class="preset-btn" onclick="applyTapeSatPreset('crisp')">🧊 ${tSync('sfx.tapesat.presets.crisp')}</button>
+                    <button class="preset-btn" onclick="applyTapeSatPreset('lofi')">📻 ${tSync('sfx.tapesat.presets.lofi')}</button>
                 </div>
             </div>
 
@@ -2220,7 +2300,7 @@ function getTapeSatTemplate() {
 
             <!-- Status -->
             <div class="tapesat-status" style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 12px; color: #888;">
-                DSP Durumu: <span id="tapesatDSPStatus" style="color: #00d4ff;">Bağlı (Mastering Priority 12)</span>
+                ${tSync('sfx.tapesat.statusLabel')} <span id="tapesatDSPStatus" style="color: #00d4ff;">${tSync('sfx.tapesat.statusAttached')}</span>
             </div>
 
             <div style="text-align: right; margin-top: 20px;">
@@ -2253,11 +2333,11 @@ function getBitDitherTemplate() {
             <div class="tapesat-presets" style="margin-bottom: 20px;">
                 <h3 style="color: #aaa; margin-bottom: 10px; font-size: 14px;">${tSync('sfx.ui.presets')}</h3>
                 <div class="preset-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="preset-btn" onclick="applyBitDitherPreset('cd16')">💿 CD Mastering (16-bit)</button>
-                    <button class="preset-btn" onclick="applyBitDitherPreset('retro12')">📻 Retro 12-bit</button>
-                    <button class="preset-btn" onclick="applyBitDitherPreset('game8')">🎮 8-bit Gaming</button>
-                    <button class="preset-btn" onclick="applyBitDitherPreset('vinyl')">🍩 Lo-fi Vinyl</button>
-                    <button class="preset-btn" onclick="applyBitDitherPreset('crunch')">💥 Subtle Crunch</button>
+                    <button class="preset-btn" onclick="applyBitDitherPreset('cd16')">💿 ${tSync('sfx.bitdither.presets.cd16')}</button>
+                    <button class="preset-btn" onclick="applyBitDitherPreset('retro12')">📻 ${tSync('sfx.bitdither.presets.retro12')}</button>
+                    <button class="preset-btn" onclick="applyBitDitherPreset('game8')">🎮 ${tSync('sfx.bitdither.presets.game8')}</button>
+                    <button class="preset-btn" onclick="applyBitDitherPreset('vinyl')">🍩 ${tSync('sfx.bitdither.presets.vinyl')}</button>
+                    <button class="preset-btn" onclick="applyBitDitherPreset('crunch')">💥 ${tSync('sfx.bitdither.presets.crunch')}</button>
                 </div>
             </div>
 
@@ -2478,7 +2558,7 @@ function initEffectControls(effectName) {
                     window.aurivo.ipcAudio.truePeakLimiter.setOversampling(rate);
                 }
 
-                console.log(`[TRUE PEAK] Oversampling: ${rate}x`);
+                console.log(`[TRUE PEAK] ${tSync('sfx.truepeak.oversampling')} ${rate}x`);
             });
         });
 
@@ -2560,7 +2640,7 @@ function initGenericKnobs(effectName) {
         const step = parseFloat(canvas.dataset.step) || 1;
         const val = parseFloat(canvas.dataset.value);
         const unit = canvas.dataset.unit || '';
-        const label = canvas.dataset.label || param;
+        const label = getKnobLabel(effectName, param, canvas.dataset.label || param);
 
         const knob = new ColorKnob(canvas, {
             label: label,
@@ -2821,7 +2901,7 @@ function initAurivoKnobs() {
         const canvas = document.getElementById(cfg.id);
         if (canvas) {
             const knob = new ColorKnob(canvas, {
-                label: cfg.label,
+                label: getKnobLabel('eq32', cfg.param, cfg.label),
                 minValue: cfg.min,
                 maxValue: cfg.max,
                 stepSize: cfg.step,
@@ -3980,7 +4060,7 @@ function resetEffect(effectName) {
 
             // Açıklamayı güncelle
             const descEl = document.getElementById('crossfeed-preset-description');
-            if (descEl) descEl.textContent = "🎧 Natural: Doğal hoparlör benzeri stereo deneyim (Önerilen)";
+            if (descEl) descEl.textContent = tSync('sfx.crossfeed.presetDescriptions.0');
         }
 
         // Apply reset
@@ -4253,11 +4333,11 @@ function initCrossfeedControls() {
     if (!panel) return;
 
     const presetDescriptions = {
-        0: "🎧 Natural: Doğal hoparlör benzeri stereo deneyim (Önerilen)",
-        1: "🎵 Mild: Hafif crossfeed, minimal yorgunluk azaltma",
-        2: "💪 Strong: Güçlü crossfeed, belirgin hoparlör hissi",
-        3: "🌌 Wide: Geniş sahne, uzamsal his",
-        4: "⚙️ Custom: Manuel ayarlarınız"
+        0: tSync('sfx.crossfeed.presetDescriptions.0'),
+        1: tSync('sfx.crossfeed.presetDescriptions.1'),
+        2: tSync('sfx.crossfeed.presetDescriptions.2'),
+        3: tSync('sfx.crossfeed.presetDescriptions.3'),
+        4: tSync('sfx.crossfeed.presetDescriptions.4')
     };
 
     const presetValues = [
@@ -4374,13 +4454,13 @@ function initCrossfeedControls() {
         if (!statusEl || !window.aurivo?.ipcAudio?.crossfeed?.getParams) return;
         try {
             const params = await window.aurivo.ipcAudio.crossfeed.getParams();
-            const attached = params?.dspAttached ? 'Bağlı' : 'Bağlı değil';
+            const attached = params?.dspAttached ? tSync('sfx.crossfeed.attached') : tSync('sfx.crossfeed.detached');
             const count = params?.callbackCount ?? 0;
             const err = params?.lastError ?? 0;
-            const errText = err ? ` | Hata: ${err}` : '';
-            statusEl.textContent = `DSP Durumu: ${attached} | Callback: ${count}${errText}`;
+            const errText = err ? ` | ${tSync('sfx.crossfeed.errorLabel')}: ${err}` : '';
+            statusEl.textContent = tSync('sfx.crossfeed.statusLine', { attached, count, errText });
         } catch (e) {
-            statusEl.textContent = 'DSP Durumu: okunamadı';
+            statusEl.textContent = tSync('sfx.crossfeed.statusUnreadable');
         }
     };
     updateStatus();
@@ -5078,3 +5158,5 @@ window.updateBitDitherSelect = function (param, value) {
 // EXPORT
 // ============================================
 window.SFX = SFX;
+
+

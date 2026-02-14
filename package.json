@@ -19,7 +19,7 @@
     "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
     "dist": "npm run build:win",
-    "dev:win": "cmd /c \"chcp 65001>nul && set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
+    "dev:win": "cmd /c \"chcp 65001>nul && set ELECTRON_RUN_AS_NODE=&& set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
   },
   "author": "Muhammet Dali",
   "homepage": "https://aurivo.app",
@@ -253,7 +253,9 @@
   },
   "dependencies": {
     "mpris-service": "^2.1.2",
-    "node-id3": "^0.2.9"
+    "node-id3": "^0.2.9",
+    "systeminformation": "^5.25.11",
+    "yt-dlp-wrap-plus": "^2.4.3"
   }
 }
 

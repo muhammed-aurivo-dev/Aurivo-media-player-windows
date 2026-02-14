@@ -1,8 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray, Menu, shell, session } = require('electron');
+const os = require('os');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
+const crypto = require('crypto');
+const { registerDawlodIpc } = require('./modules/dawlodHost');
 
 // MPRIS (Linux Medya Oynatıcı Uzaktan Arayüz Spesifikasyonu)
 let Player = null;
@@ -54,16 +56,28 @@ if (app && app.commandLine) {
     if (process.platform === 'linux') {
         app.commandLine.appendSwitch('class', LINUX_WM_CLASS);
     }
+    app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
     // DÜZELTME: WebView'larda çift medya oynatıcıyı önlemek için Chromium MediaSessionService devre dışı
-    app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
+    const disabledFeatures = ['HardwareMediaKeyHandling', 'MediaSessionService'];
+    // Windows'ta bazı ortamlarda Chromium built-in cert verifier, sistemde güvenilen
+    // sertifikaları görmeyip net::ERR_CERT_AUTHORITY_INVALID (-202) üretebiliyor.
+    // Sistem doğrulayıcıya dönerek tarayıcı ile davranışı hizala.
+    if (process.platform === 'win32') {
+        disabledFeatures.push('CertVerifierBuiltinFeature');
+    }
+    app.commandLine.appendSwitch('disable-features', disabledFeatures.join(','));
 } else {
     console.warn('[Startup] app.commandLine not available');
 }
 
 // Windows 10/11: taskbar/dock ikon eşleştirmesi ve gruplama
 if (process.platform === 'win32') {
-    app.setAppUserModelId('com.aurivo.mediaplayer');
+    if (app && typeof app.setAppUserModelId === 'function') {
+        app.setAppUserModelId('com.aurivo.mediaplayer');
+    } else {
+        console.warn('[Startup] setAppUserModelId unavailable');
+    }
 }
 
 function prependToProcessPath(dir) {
@@ -96,6 +110,8 @@ function ensureWindowsRuntimePaths() {
 }
 
 ensureWindowsRuntimePaths();
+
+// (removed) WebView2 host support
 
 let winRuntimeDepsLogged = false;
 function logWindowsRuntimeDepsOnce(context = '') {
@@ -198,7 +214,8 @@ function detectDisplayServer() {
     } else {
         console.log('💻 Display Server: auto');
         app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-        appendCsvSwitch('enable-features', 'VaapiVideoDecoder');
+        // auto modunda bile Wayland secilebilir; ozone feature'i acik olsun.
+        appendCsvSwitch('enable-features', 'UseOzonePlatform,VaapiVideoDecoder');
     }
 
     if (!forceSoftware) {
@@ -315,11 +332,8 @@ function initNativeAudioEngineSafe({ force = false } = {}) {
 
 let mainWindow;
 let tray = null;
+let lastTrayState = { isPlaying: false, currentTrack: 'Aurivo Media Player', isMuted: false, stopAfterCurrent: false };
 let mprisPlayer = null;
-
-// İndirme durumu (Aurivo-Dawlod / yt-dlp)
-let downloadSeq = 0;
-const activeDownloads = new Map(); // id -> { proc, killTimer }
 
 function getResourcePath(relPath) {
     // Dev: doğrudan repo içinden
@@ -337,7 +351,7 @@ function getAppFilePath(relPath) {
 }
 
 function getLocaleCandidatePaths(lang) {
-    const normalized = normalizeUiLang(lang) || 'en';
+    const normalized = normalizeUiLang(lang) || 'en-US';
     const filename = `${normalized}.json`;
 
     // Tercih: app.asar (paket) / proje kökü (dev)
@@ -378,69 +392,6 @@ async function readFirstJson(paths) {
     return null;
 }
 
-function getDownloaderCliPath() {
-    return getResourcePath(path.join('Aurivo-Dawlod', 'aurivo_download_cli.py'));
-}
-
-function getPythonCandidates() {
-    const out = [];
-
-    const envPython = process.env.AURIVO_PYTHON;
-    if (envPython) out.push(envPython);
-
-    // Dev: önce repo-yerel venv
-    if (!app.isPackaged) {
-        if (process.platform === 'win32') {
-            out.push(path.join(__dirname, '.venv', 'Scripts', 'python.exe'));
-        } else {
-            out.push(path.join(__dirname, '.venv', 'bin', 'python'));
-        }
-    }
-
-    if (process.platform !== 'win32') out.push('python3');
-    out.push('python');
-
-    return [...new Set(out)].filter(Boolean);
-}
-
-function spawnPythonWithFallback(args, spawnOpts) {
-    const candidates = getPythonCandidates();
-    let idx = 0;
-
-    return new Promise((resolve, reject) => {
-        const tryNext = (lastErr) => {
-            if (idx >= candidates.length) {
-                reject(lastErr || new Error('Python bulunamadı (AURIVO_PYTHON ayarlayabilir veya python3/python kurabilirsiniz).'));
-                return;
-            }
-
-            const py = candidates[idx++];
-            let child = null;
-            try {
-                child = spawn(py, args, {
-                    ...spawnOpts,
-                    stdio: ['ignore', 'pipe', 'pipe']
-                });
-            } catch (e) {
-                tryNext(e);
-                return;
-            }
-
-            child.once('error', (err) => {
-                if (err && err.code === 'ENOENT') {
-                    tryNext(err);
-                    return;
-                }
-                reject(err);
-            });
-
-            resolve(child);
-        };
-
-        tryNext(null);
-    });
-}
-
 function getAppIconPath() {
     if (process.platform === 'win32') {
         return getResourcePath(path.join('icons', 'aurivo.ico'));
@@ -461,18 +412,221 @@ function getSettingsPath() {
     return path.join(app.getPath('userData'), 'settings.json');
 }
 
+const WEBVIEW_PARTITION = 'persist:aurivo-web';
+
+function getWebSessions() {
+    const out = [];
+    const seen = new Set();
+    const add = (ses) => {
+        if (!ses) return;
+        const key = ses.id || ses.partition || Math.random().toString(36);
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(ses);
+    };
+    try { add(session.fromPartition(WEBVIEW_PARTITION)); } catch { }
+    try { add(session.defaultSession); } catch { }
+    return out;
+}
+
+const WEB_ALLOWED_HOSTS_MAIN = new Set([
+    'google.com',
+    'www.google.com',
+    'youtube.com',
+    'www.youtube.com',
+    'm.youtube.com',
+    'music.youtube.com',
+    'youtube-nocookie.com',
+    'www.youtube-nocookie.com',
+    'youtu.be',
+    'accounts.google.com',
+    'www.deezer.com',
+    'deezer.com',
+    'soundcloud.com',
+    'www.soundcloud.com',
+    'facebook.com',
+    'www.facebook.com',
+    'm.facebook.com',
+    'instagram.com',
+    'www.instagram.com',
+    'tiktok.com',
+    'www.tiktok.com',
+    'm.tiktok.com',
+    'x.com',
+    'www.x.com',
+    'twitter.com',
+    'www.twitter.com',
+    'reddit.com',
+    'www.reddit.com',
+    'old.reddit.com',
+    'twitch.tv',
+    'www.twitch.tv'
+]);
+
+const WEB_ALLOWED_SUFFIXES_MAIN = [
+    '.youtube.com',
+    '.youtube-nocookie.com',
+    '.google.com',
+    '.googleusercontent.com',
+    '.deezer.com',
+    '.soundcloud.com',
+    '.facebook.com',
+    '.instagram.com',
+    '.tiktok.com',
+    '.x.com',
+    '.twitter.com',
+    '.reddit.com',
+    '.twitch.tv'
+];
+
+function parseHttpUrlMain(raw) {
+    try {
+        const u = new URL(String(raw || '').trim());
+        if (!/^https?:$/i.test(u.protocol)) return null;
+        return u;
+    } catch {
+        return null;
+    }
+}
+
+function isAllowedWebUrlMain(raw) {
+    const parsed = parseHttpUrlMain(raw);
+    if (!parsed) return false;
+    const host = String(parsed.hostname || '').toLowerCase();
+    if (WEB_ALLOWED_HOSTS_MAIN.has(host)) return true;
+    return WEB_ALLOWED_SUFFIXES_MAIN.some((suffix) => host.endsWith(suffix));
+}
+
+function isAllowedWebHostMain(hostname) {
+    const host = String(hostname || '').trim().toLowerCase();
+    if (!host) return false;
+    if (WEB_ALLOWED_HOSTS_MAIN.has(host)) return true;
+    return WEB_ALLOWED_SUFFIXES_MAIN.some((suffix) => host.endsWith(suffix));
+}
+
+// Cert doğrulama için platformların kullandığı CDN hostları.
+// Not: Bu liste gezinme allowlist'i değildir; yalnızca -202 TLS zinciri sorununda kullanılır.
+const WEB_CERT_TRUST_SUFFIXES_MAIN = [
+    '.sndcdn.com',
+    '.googlevideo.com',
+    '.gvt1.com'
+];
+
+function isTrustedWebCertHostMain(hostname) {
+    const host = String(hostname || '').trim().toLowerCase();
+    if (!host) return false;
+    if (isAllowedWebHostMain(host)) return true;
+    return WEB_CERT_TRUST_SUFFIXES_MAIN.some((suffix) => host.endsWith(suffix));
+}
+
+function isTrustedWebCertUrlMain(raw) {
+    try {
+        const u = new URL(String(raw || '').trim());
+        return isTrustedWebCertHostMain(u.hostname);
+    } catch {
+        return false;
+    }
+}
+
+function sanitizeSensitiveSettings(input) {
+    const source = (input && typeof input === 'object') ? input : {};
+    const clone = JSON.parse(JSON.stringify(source));
+
+    const sensitiveKeyPattern = /(^|_|\.)((pass(word)?)|(email)|(token)|(cookie)|(session)|(auth)|(credential))/i;
+
+    const walk = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        for (const key of Object.keys(obj)) {
+            const value = obj[key];
+            if (sensitiveKeyPattern.test(key)) {
+                delete obj[key];
+                continue;
+            }
+            if (value && typeof value === 'object') {
+                walk(value);
+            }
+        }
+    };
+
+    walk(clone);
+
+    // Explicit deny-list for potential future fields.
+    if (clone.web && typeof clone.web === 'object') {
+        delete clone.web.credentials;
+        delete clone.web.cookies;
+        delete clone.web.auth;
+    }
+
+    return clone;
+}
+
 // ============================================================
 // UI I18N (Ana İşlem)
 // - Renderer seçilen dili settings.json'a yazar: ui.language
 // - Yedek: app.getLocale(), sonra İngilizce
 // ============================================================
-const UI_SUPPORTED_LANGS = new Set(['tr', 'en', 'ar', 'fr', 'de', 'es', 'hi']);
+const UI_SUPPORTED_LANGS = new Set([
+    'ar-SA',
+    'bn-BD',
+    'de-DE',
+    'el-GR',
+    'en-US',
+    'es-ES',
+    'fa-IR',
+    'fi-FI',
+    'fr-FR',
+    'hi-IN',
+    'hu-HU',
+    'it-IT',
+    'ja-JP',
+    'ne-NP',
+    'pl-PL',
+    'pt-BR',
+    'ru-RU',
+    'tr-TR',
+    'uk-UA',
+    'vi-VN',
+    'zh-CN',
+    'zh-TW'
+]);
+const UI_DEFAULT_BY_BASE = {
+    ar: 'ar-SA',
+    bn: 'bn-BD',
+    de: 'de-DE',
+    el: 'el-GR',
+    en: 'en-US',
+    es: 'es-ES',
+    fa: 'fa-IR',
+    fi: 'fi-FI',
+    fr: 'fr-FR',
+    hi: 'hi-IN',
+    hu: 'hu-HU',
+    it: 'it-IT',
+    ja: 'ja-JP',
+    ne: 'ne-NP',
+    pl: 'pl-PL',
+    pt: 'pt-BR',
+    ru: 'ru-RU',
+    tr: 'tr-TR',
+    uk: 'uk-UA',
+    vi: 'vi-VN',
+    zh: 'zh-CN'
+};
 const uiMessagesCache = new Map(); // lang -> messages
 
 function normalizeUiLang(lang) {
     if (!lang) return null;
-    const base = String(lang).trim().toLowerCase().split(/[-_]/)[0];
-    return UI_SUPPORTED_LANGS.has(base) ? base : null;
+    const raw = String(lang).trim().replace('_', '-');
+    const [basePart, regionPart] = raw.split('-');
+    const base = String(basePart || '').toLowerCase();
+    const region = regionPart ? String(regionPart).toUpperCase() : '';
+
+    if (base && region) {
+        const full = `${base}-${region}`;
+        if (UI_SUPPORTED_LANGS.has(full)) return full;
+    }
+
+    return UI_DEFAULT_BY_BASE[base] || null;
 }
 
 function deepGet(obj, pathStr) {
@@ -504,21 +658,161 @@ function getUiLanguageSync() {
         // yoksay
     }
 
-    return normalizeUiLang(app.getLocale()) || 'en';
+    return normalizeUiLang(app.getLocale()) || 'en-US';
+}
+
+function applyUiLocaleOverrides(lang, messages) {
+    const normalized = normalizeUiLang(lang) || 'en-US';
+    const out = (messages && typeof messages === 'object') ? { ...messages } : {};
+    const deepSet = (obj, pathStr, value) => {
+        const parts = String(pathStr).split('.').filter(Boolean);
+        if (!parts.length) return;
+        let cur = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+            const p = parts[i];
+            if (!cur[p] || typeof cur[p] !== 'object') cur[p] = {};
+            cur = cur[p];
+        }
+        cur[parts[parts.length - 1]] = value;
+    };
+    const deepEnsure = (key, value) => {
+        if (deepGet(out, key) === undefined) deepSet(out, key, value);
+    };
+
+    deepEnsure('trayMedia.previous', 'Previous track');
+    deepEnsure('trayMedia.play', 'Play');
+    deepEnsure('trayMedia.pause', 'Pause');
+    deepEnsure('trayMedia.stop', 'Stop');
+    deepEnsure('trayMedia.stopAfterCurrent', 'Stop after current track');
+    deepEnsure('trayMedia.next', 'Next track');
+    deepEnsure('trayMedia.mute', 'Mute');
+    deepEnsure('trayMedia.unmute', 'Unmute');
+    deepEnsure('trayMedia.like', 'Like');
+    deepEnsure('trayMedia.show', 'Show');
+    deepEnsure('trayMedia.exit', 'Exit');
+
+    if (normalized === 'tr-TR') {
+        deepEnsure('appMenu.file', 'Dosya');
+        deepEnsure('appMenu.edit', 'Düzen');
+        deepEnsure('appMenu.view', 'Görünüm');
+        deepEnsure('appMenu.window', 'Pencere');
+        deepEnsure('appMenu.help', 'Yardım');
+        deepEnsure('appMenu.quit', 'Çıkış');
+        deepEnsure('appMenu.close', 'Kapat');
+        deepEnsure('appMenu.minimize', 'Küçült');
+        deepEnsure('appMenu.reload', 'Yenile');
+        deepEnsure('appMenu.toggleDevTools', 'Geliştirici araçları');
+        deepEnsure('appMenu.resetZoom', 'Yakınlaştırmayı sıfırla');
+        deepEnsure('appMenu.zoomIn', 'Yakınlaştır');
+        deepEnsure('appMenu.zoomOut', 'Uzaklaştır');
+        deepEnsure('appMenu.toggleFullscreen', 'Tam ekran');
+        deepEnsure('appMenu.undo', 'Geri al');
+        deepEnsure('appMenu.redo', 'Yinele');
+        deepEnsure('appMenu.cut', 'Kes');
+        deepEnsure('appMenu.copy', 'Kopyala');
+        deepEnsure('appMenu.paste', 'Yapıştır');
+        deepEnsure('appMenu.selectAll', 'Tümünü seç');
+        deepEnsure('trayMedia.previous', 'Önceki parça');
+        deepEnsure('trayMedia.play', 'Oynat');
+        deepEnsure('trayMedia.pause', 'Duraklat');
+        deepEnsure('trayMedia.stop', 'Durdur');
+        deepEnsure('trayMedia.stopAfterCurrent', 'Bu parçadan sonra durdur');
+        deepEnsure('trayMedia.next', 'Sonraki parça');
+        deepEnsure('trayMedia.mute', 'Sessiz');
+        deepEnsure('trayMedia.unmute', 'Sesi aç');
+        deepEnsure('trayMedia.like', 'Beğen');
+        deepEnsure('trayMedia.show', 'Göster');
+        deepEnsure('trayMedia.exit', 'Çık');
+    }
+    if (normalized === 'ar-SA') {
+        deepEnsure('appMenu.file', 'ملف');
+        deepEnsure('appMenu.edit', 'تحرير');
+        deepEnsure('appMenu.view', 'عرض');
+        deepEnsure('appMenu.window', 'نافذة');
+        deepEnsure('appMenu.help', 'مساعدة');
+        deepEnsure('appMenu.quit', 'خروج');
+        deepEnsure('appMenu.close', 'إغلاق');
+        deepEnsure('appMenu.minimize', 'تصغير');
+        deepEnsure('appMenu.reload', 'إعادة تحميل');
+        deepEnsure('appMenu.toggleDevTools', 'أدوات المطور');
+        deepEnsure('appMenu.resetZoom', 'إعادة تعيين التكبير');
+        deepEnsure('appMenu.zoomIn', 'تكبير');
+        deepEnsure('appMenu.zoomOut', 'تصغير التكبير');
+        deepEnsure('appMenu.toggleFullscreen', 'ملء الشاشة');
+        deepEnsure('appMenu.undo', 'تراجع');
+        deepEnsure('appMenu.redo', 'إعادة');
+        deepEnsure('appMenu.cut', 'قص');
+        deepEnsure('appMenu.copy', 'نسخ');
+        deepEnsure('appMenu.paste', 'لصق');
+        deepEnsure('appMenu.selectAll', 'تحديد الكل');
+        deepEnsure('trayMedia.previous', 'المقطع السابق');
+        deepEnsure('trayMedia.play', 'تشغيل');
+        deepEnsure('trayMedia.pause', 'إيقاف مؤقت');
+        deepEnsure('trayMedia.stop', 'إيقاف');
+        deepEnsure('trayMedia.stopAfterCurrent', 'إيقاف بعد المقطع الحالي');
+        deepEnsure('trayMedia.next', 'المقطع التالي');
+        deepEnsure('trayMedia.mute', 'كتم');
+        deepEnsure('trayMedia.unmute', 'إلغاء الكتم');
+        deepEnsure('trayMedia.like', 'إعجاب');
+        deepEnsure('trayMedia.show', 'إظهار');
+        deepEnsure('trayMedia.exit', 'خروج');
+    }
+
+    return out;
+}
+
+const UI_LEGACY_KEY_MAP = {
+    'settings.title': ['preferences'],
+    'settings.tabs.download': ['download'],
+    'settings.tabs.audio': ['audio'],
+    'about.title': ['about'],
+    'appMenu.quit': ['quit'],
+    'appMenu.close': ['close']
+};
+
+function tFromMessagesWithLegacy(messages, lang, key, vars) {
+    let raw = deepGet(messages, key);
+    if (typeof raw !== 'string') {
+        const legacy = UI_LEGACY_KEY_MAP[key];
+        if (Array.isArray(legacy)) {
+            for (const lk of legacy) {
+                raw = deepGet(messages, lk);
+                if (typeof raw === 'string') break;
+            }
+        }
+    }
+
+    if (typeof raw !== 'string' && lang !== 'en-US') {
+        const en = loadUiMessagesSync('en-US');
+        raw = deepGet(en, key);
+        if (typeof raw !== 'string') {
+            const legacy = UI_LEGACY_KEY_MAP[key];
+            if (Array.isArray(legacy)) {
+                for (const lk of legacy) {
+                    raw = deepGet(en, lk);
+                    if (typeof raw === 'string') break;
+                }
+            }
+        }
+    }
+
+    if (typeof raw !== 'string') return String(key);
+    return formatTemplate(raw, vars);
 }
 
 function loadUiMessagesSync(lang) {
-    const normalized = normalizeUiLang(lang) || 'en';
+    const normalized = normalizeUiLang(lang) || 'en-US';
     if (uiMessagesCache.has(normalized)) return uiMessagesCache.get(normalized);
     try {
         const json = readFirstJsonSync(getLocaleCandidatePaths(normalized));
         if (json) {
-            uiMessagesCache.set(normalized, json || {});
-            return json || {};
+            const patched = applyUiLocaleOverrides(normalized, json || {});
+            uiMessagesCache.set(normalized, patched);
+            return patched;
         }
     } catch {
-        if (normalized !== 'en') return loadUiMessagesSync('en');
-        uiMessagesCache.set('en', {});
+        if (normalized !== 'en-US') return loadUiMessagesSync('en-US');
+        uiMessagesCache.set('en-US', {});
         return {};
     }
 }
@@ -526,12 +820,7 @@ function loadUiMessagesSync(lang) {
 function tMainSync(key, vars) {
     const lang = getUiLanguageSync();
     const messages = loadUiMessagesSync(lang);
-    let raw = deepGet(messages, key);
-    if (typeof raw !== 'string' && lang !== 'en') {
-        raw = deepGet(loadUiMessagesSync('en'), key);
-    }
-    if (typeof raw !== 'string') return String(key);
-    return formatTemplate(raw, vars);
+    return tFromMessagesWithLegacy(messages, lang, key, vars);
 }
 
 function installAppMenu() {
@@ -710,8 +999,6 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1500,
         height: 900,
-        minWidth: 1200,
-        minHeight: 720,
         backgroundColor: '#121212',
         icon: getAppIconImage(),
         webPreferences: {
@@ -720,6 +1007,7 @@ function createWindow() {
             contextIsolation: true,
             sandbox: false,  // Preload'da Node.js modülleri için gerekli
             webviewTag: true,  // WebView desteği
+            plugins: true, // DRM/CDM tabanlı web oynatıcılar için gerekli olabilir
             spellcheck: false
         },
         frame: true,
@@ -732,6 +1020,31 @@ function createWindow() {
     if (process.platform === 'linux' && typeof mainWindow.setIcon === 'function') {
         mainWindow.setIcon(getAppIconImage());
     }
+
+    // WebView attach hardening: force isolated guest settings and block preload injection.
+    mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+        try {
+            webPreferences.nodeIntegration = false;
+            webPreferences.contextIsolation = true;
+            // Bazı web platformlarda sandbox=true bazı akışlarda oynatmayı engelleyebiliyor.
+            webPreferences.sandbox = false;
+            webPreferences.webSecurity = true;
+            webPreferences.enableRemoteModule = false;
+            webPreferences.allowRunningInsecureContent = false;
+            webPreferences.plugins = true;
+            // Guest preload disallow: no bridge in third-party pages.
+            delete webPreferences.preload;
+
+            const targetUrl = String(params?.src || '').trim();
+            // Initial webview src is often about:blank; block only non-blank external URLs.
+            if (targetUrl && targetUrl !== 'about:blank' && !isAllowedWebUrlMain(targetUrl)) {
+                event.preventDefault();
+            }
+        } catch (e) {
+            console.warn('[SECURITY] will-attach-webview hardening error:', e?.message || e);
+            event.preventDefault();
+        }
+    });
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
@@ -887,7 +1200,7 @@ function createMPRIS() {
             identity: 'Aurivo Media Player',
             desktopEntry: 'aurivo-media-player', // KDE/GNOME eşleşmesi için gerekli
             supportedUriSchemes: ['file'],
-            supportedMimeTypes: ['audio/mpeg', 'audio/flac', 'audio/x-wav', 'audio/ogg'],
+            supportedMimeTypes: ['audio/mpeg', 'audio/flac', 'audio/x-wav', 'audio/ogg', 'audio/opus'],
             supportedInterfaces: ['player']
         });
 
@@ -1016,17 +1329,26 @@ function updateMPRISMetadata(metadata) {
 function updateTrayMenu(state) {
     if (!tray) return;
 
-    const { isPlaying = false, currentTrack = 'Aurivo Media Player', isMuted = false, stopAfterCurrent = false } = state;
+    const safeState = (state && typeof state === 'object') ? state : {};
+    const mergedState = {
+        ...lastTrayState,
+        ...safeState
+    };
+    lastTrayState = mergedState;
 
-    // İkonları yükle
+    const { isPlaying = false, currentTrack = 'Aurivo Media Player', isMuted = false, stopAfterCurrent = false } = mergedState;
+
+    // İkonları küçük ve tutarlı boyutta yükle
     const iconPath = (name) => {
         const p = getResourcePath(path.join('icons', name));
-        return nativeImage.createFromPath(p);
+        const img = nativeImage.createFromPath(p);
+        if (!img || img.isEmpty()) return undefined;
+        return img.resize({ width: 16, height: 16 });
     };
 
     const contextMenu = Menu.buildFromTemplate([
         {
-            label: 'Önceki parça',
+            label: tMainSync('trayMedia.previous'),
             icon: iconPath('tray-previous.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1035,7 +1357,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: isPlaying ? 'Duraklat' : 'Oynat',
+            label: isPlaying ? tMainSync('trayMedia.pause') : tMainSync('trayMedia.play'),
             icon: iconPath(isPlaying ? 'tray-pause.png' : 'tray-play.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1044,7 +1366,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: 'Durdur',
+            label: tMainSync('trayMedia.stop'),
             icon: iconPath('tray-stop.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1053,7 +1375,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: 'Bu parçadan sonra durdur',
+            label: tMainSync('trayMedia.stopAfterCurrent'),
             type: 'checkbox',
             checked: stopAfterCurrent,
             click: () => {
@@ -1063,7 +1385,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: 'Sonraki parça',
+            label: tMainSync('trayMedia.next'),
             icon: iconPath('tray-next.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1073,7 +1395,7 @@ function updateTrayMenu(state) {
         },
         { type: 'separator' },
         {
-            label: isMuted ? 'Sesi aç' : 'Sessiz',
+            label: isMuted ? tMainSync('trayMedia.unmute') : tMainSync('trayMedia.mute'),
             icon: iconPath(isMuted ? 'tray-volume.png' : 'tray-mute.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1082,7 +1404,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: 'Beğen',
+            label: tMainSync('trayMedia.like'),
             icon: iconPath('tray-like.png'),
             click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1092,7 +1414,7 @@ function updateTrayMenu(state) {
         },
         { type: 'separator' },
         {
-            label: 'Göster',
+            label: tMainSync('trayMedia.show'),
             icon: iconPath('tray-show.png'),
             click: () => {
                 if (mainWindow) {
@@ -1102,7 +1424,7 @@ function updateTrayMenu(state) {
             }
         },
         {
-            label: 'Çık',
+            label: tMainSync('trayMedia.exit'),
             icon: iconPath('tray-exit.png'),
             click: () => {
                 app.isQuitting = true;
@@ -1650,14 +1972,14 @@ ipcMain.handle('visualizer:toggle', () => {
 // I18N (LOCALE'LER)
 // ============================================
 ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
-    const normalized = normalizeUiLang(lang) || 'en';
+    const normalized = normalizeUiLang(lang) || 'en-US';
     try {
         const json = await readFirstJson(getLocaleCandidatePaths(normalized));
         if (json) return json;
     } catch (e) {
-        if (normalized !== 'en') {
+        if (normalized !== 'en-US') {
             try {
-                const json = await readFirstJson(getLocaleCandidatePaths('en'));
+                const json = await readFirstJson(getLocaleCandidatePaths('en-US'));
                 if (json) return json;
             } catch {
                 return {};
@@ -1666,11 +1988,25 @@ ipcMain.handle('i18n:loadLocale', async (_event, lang) => {
         return {};
     }
     // Yedek
-    if (normalized !== 'en') {
-        const json = await readFirstJson(getLocaleCandidatePaths('en'));
+    if (normalized !== 'en-US') {
+        const json = await readFirstJson(getLocaleCandidatePaths('en-US'));
         if (json) return json;
     }
     return {};
+});
+
+ipcMain.handle('get-system-locale', async () => {
+    try {
+        if (app && typeof app.getSystemLocale === 'function') {
+            return app.getSystemLocale();
+        }
+        if (app && typeof app.getLocale === 'function') {
+            return app.getLocale();
+        }
+    } catch {
+        // ignore
+    }
+    return 'en-US';
 });
 
 // ============================================
@@ -1731,12 +2067,127 @@ ipcMain.handle('window:isMaximized', (event) => {
     return win ? win.isMaximized() : false;
 });
 
+function installWebviewHardening() {
+    // Permission defaults: deny sensitive requests for embedded web content.
+    try {
+        const webSessions = getWebSessions();
+        for (const ses of webSessions) {
+            if (ses && typeof ses.setPermissionRequestHandler === 'function') {
+                ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+                    const wcType = webContents?.getType?.();
+                    if (wcType === 'webview') {
+                        // Web platformlarda (allowlist) kullanıcı akışını bozmayacak şekilde
+                        // izinleri host bazlı değerlendir.
+                        const currentUrl = String(webContents?.getURL?.() || '').trim();
+                        const originUrl = String(details?.requestingOrigin || '').trim();
+                        const trustedContext =
+                            isAllowedWebUrlMain(currentUrl) ||
+                            isAllowedWebUrlMain(originUrl);
+                        callback(!!trustedContext);
+                        return;
+                    }
+                    callback(false);
+                });
+            }
+
+            // Kurumsal MITM/yerel güvenlik yazılımı olan sistemlerde Electron
+            // bazen -202 (CERT_AUTHORITY_INVALID) üretip web platform çalmayı kesiyor.
+            // Sadece izinli platform hostları için bu spesifik hatayı yumuşat.
+            if (ses && typeof ses.setCertificateVerifyProc === 'function') {
+                ses.setCertificateVerifyProc((request, callback) => {
+                    try {
+                        const code = Number(request?.errorCode);
+                        const host = String(request?.hostname || '').toLowerCase();
+                        if (code === -202 && isTrustedWebCertHostMain(host)) {
+                            callback(0); // trust
+                            return;
+                        }
+                    } catch {
+                        // fall through
+                    }
+                    callback(-3); // use default verification
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('[SECURITY] setPermissionRequestHandler failed:', e?.message || e);
+    }
+
+    // Harden all webviews created in this app.
+    app.on('web-contents-created', (_event, contents) => {
+        const type = contents.getType?.();
+        if (type !== 'webview') return;
+
+        // Block opening arbitrary external windows from embedded web content.
+        if (typeof contents.setWindowOpenHandler === 'function') {
+            contents.setWindowOpenHandler(({ url }) => {
+                const popupUrl = String(url || '').trim();
+                // OAuth flows often open an empty popup first, then navigate.
+                if (!popupUrl || popupUrl === 'about:blank') {
+                    return {
+                        action: 'allow',
+                        overrideBrowserWindowOptions: {
+                            icon: getAppIconImage(),
+                            title: 'Aurivo Medya Player',
+                            autoHideMenuBar: false
+                        }
+                    };
+                }
+                if (isAllowedWebUrlMain(popupUrl)) {
+                    return {
+                        action: 'allow',
+                        overrideBrowserWindowOptions: {
+                            icon: getAppIconImage(),
+                            title: 'Aurivo Medya Player',
+                            autoHideMenuBar: false
+                        }
+                    };
+                }
+                return { action: 'deny' };
+            });
+        }
+
+        contents.on('will-navigate', (event, url) => {
+            if (!isAllowedWebUrlMain(url)) {
+                event.preventDefault();
+            }
+        });
+
+        contents.on('will-redirect', (event, url) => {
+            if (!isAllowedWebUrlMain(url)) {
+                event.preventDefault();
+            }
+        });
+    });
+}
+
+function installTlsCompatibilityForWebPlatforms() {
+    // Bazı sistemlerde HTTPS trafiği yerel sertifika ile MITM edildiğinde
+    // Electron webview'da -202 (CERT_AUTHORITY_INVALID) oluşabiliyor.
+    // Yalnızca izinli web platformları için bu hatayı kontrollü şekilde bypass et.
+    app.on('certificate-error', (event, _webContents, url, error, _certificate, callback) => {
+        try {
+            if (String(error || '') === 'net::ERR_CERT_AUTHORITY_INVALID' && isTrustedWebCertUrlMain(url)) {
+                event.preventDefault();
+                callback(true);
+                return;
+            }
+        } catch {
+            // fall through
+        }
+        callback(false);
+    });
+}
+
 app.whenReady().then(async () => {
     // GPU ayarları burada uygula
     app.commandLine.appendSwitch('enable-gpu-rasterization');
     app.commandLine.appendSwitch('enable-zero-copy');
 
+    try { installWebviewHardening(); } catch (e) { console.error('[APP] installWebviewHardening error:', e); }
+    try { installTlsCompatibilityForWebPlatforms(); } catch (e) { console.error('[APP] installTlsCompatibilityForWebPlatforms error:', e); }
     try { installAppMenu(); } catch (e) { console.error('[APP] installAppMenu error:', e); }
+    try { registerDawlodIpc({ ipcMain, app, dialog, shell, BrowserWindow }); } catch (e) { console.error('[APP] registerDawlodIpc error:', e); }
     try { createWindow(); } catch (e) { console.error('[APP] createWindow error:', e); }
     try { createTray(); } catch (e) { console.error('[APP] createTray error:', e); }
     try { createMPRIS(); } catch (e) { console.error('[APP] createMPRIS error:', e); }
@@ -1846,6 +2297,7 @@ ipcMain.handle('dialog:openFiles', async (event, filtersOrOpts) => {
 ipcMain.handle('web:openExternal', async (_event, url) => {
     const u = String(url || '').trim();
     if (!u) return false;
+    if (!isAllowedWebUrlMain(u)) return false;
     try {
         await shell.openExternal(u);
         return true;
@@ -1855,10 +2307,31 @@ ipcMain.handle('web:openExternal', async (_event, url) => {
     }
 });
 
+function detectVpnInterfaces() {
+    try {
+        const ifaces = os.networkInterfaces() || {};
+        const suspiciousName = /(wintun|wireguard|openvpn|tap|tun|ppp|pptp|l2tp|ikev2|zerotier|tailscale|hamachi)/i;
+        const hits = [];
+        for (const [name, entries] of Object.entries(ifaces)) {
+            const n = String(name || '');
+            const hasNet = Array.isArray(entries) && entries.some((e) => e && e.internal === false);
+            if (hasNet && suspiciousName.test(n)) hits.push(n);
+        }
+        return { detected: hits.length > 0, interfaces: hits };
+    } catch {
+        return { detected: false, interfaces: [] };
+    }
+}
+
+ipcMain.handle('web:getSecurityState', async () => {
+    const vpn = detectVpnInterfaces();
+    return { vpnDetected: vpn.detected, vpnInterfaces: vpn.interfaces };
+});
+
 ipcMain.handle('web:clearData', async (_event, options) => {
     const opts = (options && typeof options === 'object') ? options : {};
-    const ses = session.defaultSession;
-    if (!ses) return false;
+    const sessions = getWebSessions();
+    if (!sessions.length) return false;
 
     const wantsAll = opts.all === true;
     const wantsCookies = wantsAll || opts.cookies === true;
@@ -1866,177 +2339,25 @@ ipcMain.handle('web:clearData', async (_event, options) => {
     const wantsStorage = wantsAll || opts.storage === true;
 
     try {
-        if (wantsCache) {
-            await ses.clearCache();
-        }
+        for (const ses of sessions) {
+            if (wantsCache) {
+                await ses.clearCache();
+            }
 
-        const storages = [];
-        if (wantsCookies) storages.push('cookies');
-        if (wantsStorage) {
-            storages.push('localstorage', 'indexdb', 'cachestorage', 'serviceworkers');
-        }
+            const storages = [];
+            if (wantsCookies) storages.push('cookies');
+            if (wantsStorage) {
+                storages.push('localstorage', 'indexdb', 'cachestorage', 'serviceworkers');
+            }
 
-        if (storages.length) {
-            await ses.clearStorageData({ storages });
+            if (storages.length) {
+                await ses.clearStorageData({ storages });
+            }
         }
 
         return true;
     } catch (e) {
         console.error('[WEB] clearData error:', e);
-        return false;
-    }
-});
-
-// ============================================================
-// İNDİRME (Python CLI ile Aurivo-Dawlod / yt-dlp)
-// ============================================================
-ipcMain.handle('download:start', async (_event, options) => {
-    const url = String(options?.url || '').trim();
-    if (!url) throw new Error('URL boş');
-
-    const mode = options?.mode === 'audio' ? 'audio' : 'video';
-    const outputDirRaw = String(options?.outputDir || '').trim();
-    const outputDir = outputDirRaw || app.getPath('downloads');
-
-    const scriptPath = getDownloaderCliPath();
-    if (!fs.existsSync(scriptPath)) {
-        throw new Error(`Downloader script bulunamadı: ${scriptPath}`);
-    }
-
-    const args = [
-        scriptPath,
-        '--url', url,
-        '--mode', mode,
-        '--output', outputDir
-    ];
-
-    if (mode === 'video') {
-        const hRaw = String(options?.videoHeight || 'auto').trim();
-        if (hRaw && hRaw !== 'auto' && /^\d+$/.test(hRaw)) {
-            args.push('--video-height', hRaw);
-        }
-        const vcodec = String(options?.videoCodec || '').trim();
-        if (vcodec) args.push('--video-codec', vcodec);
-    } else {
-        const audioFormat = String(options?.audioFormat || 'mp3');
-        const audioQuality = String(options?.audioQuality || '192');
-        args.push('--audio-format', audioFormat, '--audio-quality', audioQuality);
-        if (options?.normalizeAudio === true) {
-            args.push('--normalize-audio');
-        }
-    }
-
-    // Gelişmiş seçenekler (tüm modlar)
-    const cookiesFromBrowser = String(options?.cookiesFromBrowser || '').trim();
-    if (cookiesFromBrowser) args.push('--cookies-from-browser', cookiesFromBrowser);
-
-    const cookiesFile = String(options?.cookiesFile || '').trim();
-    if (cookiesFile) args.push('--cookies', cookiesFile);
-
-    const proxy = String(options?.proxy || '').trim();
-    if (proxy) args.push('--proxy', proxy);
-
-    if (options?.useConfig === true) {
-        const configFile = String(options?.configFile || '').trim();
-        if (configFile) args.push('--config', configFile);
-    }
-
-    if (options?.showMoreFormats === true) {
-        const formatOverride = String(options?.formatOverride || '').trim();
-        if (formatOverride) args.push('--format-override', formatOverride);
-    }
-
-    if (options?.playlist === true) {
-        args.push('--playlist');
-        const pf = String(options?.playlistFilenameFormat || '').trim();
-        const pd = String(options?.playlistFoldernameFormat || '').trim();
-        if (pf) args.push('--playlist-filename-format', pf);
-        if (pd) args.push('--playlist-foldername-format', pd);
-    }
-
-    const customArgs = String(options?.customArgs || '').trim();
-    if (customArgs) args.push('--custom-args', customArgs);
-
-    const id = ++downloadSeq;
-    const send = (channel, payload) => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        mainWindow.webContents.send(channel, payload);
-    };
-
-    const proc = await spawnPythonWithFallback(args, { cwd: app.isPackaged ? process.resourcesPath : __dirname });
-    const tail = [];
-    const tailMax = 40;
-    activeDownloads.set(id, { proc, killTimer: null, tail });
-
-    let lastPercent = -1;
-    const percentRegex = /\[download\]\s+(\d+(?:\.\d+)?)%/i;
-
-    const handleLine = (line) => {
-        const s = String(line || '').trimEnd();
-        if (!s) return;
-
-        try {
-            tail.push(s);
-            if (tail.length > tailMax) tail.splice(0, tail.length - tailMax);
-        } catch { }
-
-        send('download:log', { id, line: s });
-
-        const m = percentRegex.exec(s);
-        if (m) {
-            const val = Math.max(0, Math.min(100, Math.floor(Number(m[1]))));
-            if (Number.isFinite(val) && val !== lastPercent) {
-                lastPercent = val;
-                send('download:progress', { id, percent: val });
-            }
-        }
-    };
-
-    const attachStream = (stream) => {
-        if (!stream) return;
-        let buf = '';
-        stream.on('data', (chunk) => {
-            buf += chunk.toString();
-            const parts = buf.split(/\r?\n/);
-            buf = parts.pop() || '';
-            for (const p of parts) handleLine(p);
-        });
-        stream.on('end', () => {
-            if (buf) handleLine(buf);
-            buf = '';
-        });
-    };
-
-    attachStream(proc.stdout);
-    attachStream(proc.stderr);
-
-    proc.on('close', (code) => {
-        const entry = activeDownloads.get(id);
-        if (entry?.killTimer) clearTimeout(entry.killTimer);
-        activeDownloads.delete(id);
-        const success = code === 0;
-        const lastLine = Array.isArray(entry?.tail) && entry.tail.length ? entry.tail[entry.tail.length - 1] : '';
-        send('download:done', { id, success, code, message: lastLine || '', tail: entry?.tail || [] });
-    });
-
-    return { id };
-});
-
-ipcMain.handle('download:cancel', async (_event, id) => {
-    const entry = activeDownloads.get(Number(id));
-    if (!entry?.proc) return false;
-
-    try {
-        if (entry.proc.killed) return true;
-        entry.proc.kill('SIGTERM');
-        entry.killTimer = setTimeout(() => {
-            try {
-                if (!entry.proc.killed) entry.proc.kill('SIGKILL');
-            } catch { }
-        }, 2000);
-        return true;
-    } catch (e) {
-        console.error('[DOWNLOAD] cancel error:', e);
         return false;
     }
 });
@@ -2154,7 +2475,7 @@ ipcMain.handle('fs:getFileInfo', async (event, filePath) => {
 
 ipcMain.handle('settings:save', async (event, settings) => {
     try {
-        const incoming = (settings && typeof settings === 'object') ? settings : {};
+        const incoming = sanitizeSensitiveSettings(settings);
 
         const deepMerge = (base, patch) => {
             const out = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
@@ -2177,9 +2498,18 @@ ipcMain.handle('settings:save', async (event, settings) => {
             existing = {};
         }
 
+        const prevLang = normalizeUiLang(existing?.ui?.language) || null;
+
         // Merge to preserve keys written by other windows (e.g. sfx.eq32.lastPreset)
         const merged = deepMerge(existing, incoming);
-        await writeJsonFileAtomic(getSettingsPath(), merged);
+        const sanitizedMerged = sanitizeSensitiveSettings(merged);
+        const nextLang = normalizeUiLang(sanitizedMerged?.ui?.language) || null;
+        await writeJsonFileAtomic(getSettingsPath(), sanitizedMerged);
+
+        if (prevLang !== nextLang) {
+            try { installAppMenu(); } catch (e) { console.error('[I18N] app menu refresh error:', e); }
+            try { updateTrayMenu(lastTrayState); } catch (e) { console.error('[I18N] tray menu refresh error:', e); }
+        }
         return true;
     } catch (error) {
         console.error('Settings save error:', error);
@@ -2207,7 +2537,12 @@ ipcMain.handle('settings:load', async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const data = await fs.promises.readFile(getSettingsPath(), 'utf8');
-            return JSON.parse(data);
+            const parsed = JSON.parse(data);
+            const sanitized = sanitizeSensitiveSettings(parsed);
+            if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) {
+                await writeJsonFileAtomic(getSettingsPath(), sanitized);
+            }
+            return sanitized;
         } catch (error) {
             if (attempt < 2) {
                 await new Promise(r => setTimeout(r, 40));
@@ -2324,6 +2659,97 @@ function getFfmpegPathForEnv() {
         }
     }
     return ffmpegPath;
+}
+
+function getAudioTranscodeCacheDir() {
+    const dir = path.join(app.getPath('userData'), 'audio-transcode-cache');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
+    return dir;
+}
+
+function getTranscodeKeyForFile(filePath) {
+    try {
+        const st = fs.statSync(filePath);
+        const input = `${filePath}::${st.size}::${st.mtimeMs}`;
+        return crypto.createHash('sha1').update(input).digest('hex');
+    } catch {
+        return crypto.createHash('sha1').update(String(filePath || '')).digest('hex');
+    }
+}
+
+async function transcodeAudioToFlacCached(srcPath) {
+    const fp = String(srcPath || '').trim();
+    if (!fp) return null;
+
+    // Avoid runaway cache on very large files
+    try {
+        const st = await fs.promises.stat(fp);
+        const maxBytes = 300 * 1024 * 1024; // 300 MB
+        if (st.size > maxBytes) {
+            console.warn('[AUDIO][TRANSCODE] file too large, skipping transcode:', st.size, fp);
+            return null;
+        }
+    } catch {
+        return null;
+    }
+
+    const ffmpegPath = getFfmpegPathForEnv();
+    if (app.isPackaged && process.platform === 'win32' && !fs.existsSync(ffmpegPath)) {
+        console.warn('[AUDIO][TRANSCODE] bundled ffmpeg not found, cannot transcode:', ffmpegPath);
+        return null;
+    }
+
+    if (process.platform === 'win32') {
+        try { prependToProcessPath(path.dirname(ffmpegPath)); } catch { /* ignore */ }
+    }
+
+    const outDir = getAudioTranscodeCacheDir();
+    const key = getTranscodeKeyForFile(fp);
+    const outPath = path.join(outDir, `${key}.flac`);
+
+    // If already cached, reuse
+    try {
+        await fs.promises.access(outPath, fs.constants.R_OK);
+        return outPath;
+    } catch {
+        // continue
+    }
+
+    await new Promise((resolve) => {
+        const args = [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-y',
+            '-i', fp,
+            '-vn',
+            '-c:a', 'flac',
+            '-compression_level', '5',
+            outPath
+        ];
+
+        const p = spawn(ffmpegPath, args, { windowsHide: true });
+        let stderr = '';
+        p.stderr.on('data', (d) => { stderr += d.toString(); });
+        p.on('close', (code) => {
+            if (code !== 0) {
+                console.warn('[AUDIO][TRANSCODE] ffmpeg failed:', code, stderr.trim());
+                try { fs.unlinkSync(outPath); } catch { /* ignore */ }
+            }
+            resolve();
+        });
+        p.on('error', (e) => {
+            console.warn('[AUDIO][TRANSCODE] spawn error:', e?.message || e);
+            try { fs.unlinkSync(outPath); } catch { /* ignore */ }
+            resolve();
+        });
+    });
+
+    try {
+        await fs.promises.access(outPath, fs.constants.R_OK);
+        return outPath;
+    } catch {
+        return null;
+    }
 }
 
 // Albüm kapağı çıkarma - ID3v2 veya ffmpeg kullan
@@ -2540,12 +2966,67 @@ ipcMain.handle('audio:loadFile', async (event, filePath) => {
         console.warn('[MAIN] Native audio yok, loadFile atlandı');
         return { success: false, error: 'Native audio yok' };
     }
-    const ok = audioEngine.loadFile(filePath);
-    console.log('[MAIN] loadFile:', ok ? 'ok' : 'fail', filePath);
-    if (ok) {
-        applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
+
+    const src = String(filePath || '').trim();
+    const ext = path.extname(src).toLowerCase();
+
+    // Opus is not supported by our bundled BASS plugins. Prefer FFmpeg transcode upfront so it plays reliably.
+    if (ext === '.opus') {
+        try {
+            const cached = await transcodeAudioToFlacCached(src);
+            if (cached) {
+                const okOpus = audioEngine.loadFile(cached);
+                console.log('[MAIN] loadFile (opus->flac):', okOpus ? 'ok' : 'fail', cached);
+                if (okOpus) {
+                    applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
+                    return { success: true, pathUsed: cached, transcodedFrom: src };
+                }
+            }
+        } catch (e) {
+            console.warn('[MAIN] opus transcode error:', e?.message || e);
+        }
     }
-    return ok ? { success: true } : { success: false, error: 'Dosya yüklenemedi' };
+
+    const ok = audioEngine.loadFile(src);
+    console.log('[MAIN] loadFile:', ok ? 'ok' : 'fail', src);
+    if (ok) {
+        // Some formats can return "ok" but still have an unusable duration (0) because decoder/plugin is missing.
+        // For .opus, treat this as a failure and fall back to transcode.
+        if (ext === '.opus') {
+            try {
+                const dur = Number(audioEngine.getDuration?.() || 0) || 0;
+                if (dur <= 0) {
+                    console.warn('[MAIN] .opus loaded but duration=0; retry via transcode');
+                } else {
+                    applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
+                    return { success: true, pathUsed: src };
+                }
+            } catch {
+                // fall through to transcode fallback
+            }
+        } else {
+            applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
+            return { success: true, pathUsed: src };
+        }
+    }
+
+    // Universal fallback: if native engine can't decode the file, transcode to FLAC via FFmpeg and retry.
+    // This makes formats like .opus/.wma/.aiff playable while keeping native effects enabled.
+    try {
+        const cached = await transcodeAudioToFlacCached(src);
+        if (cached) {
+            const ok2 = audioEngine.loadFile(cached);
+            console.log('[MAIN] loadFile (transcoded):', ok2 ? 'ok' : 'fail', cached);
+            if (ok2) {
+                applyPersistedEq32SfxFromSettings().catch(() => { /* yoksay */ });
+                return { success: true, pathUsed: cached, transcodedFrom: src };
+            }
+        }
+    } catch (e) {
+        console.warn('[MAIN] transcode fallback error:', e?.message || e);
+    }
+
+    return { success: false, error: 'Dosya yüklenemedi' };
 });
 
 // Gerçek örtüşmeli crossfade
