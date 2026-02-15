@@ -16,6 +16,7 @@
     "build:linux": "node native/copy-libs.js linux && node scripts/verify-linux-artifacts.js && electron-builder --linux",
     "verify:win:artifacts": "node scripts/verify-win-artifacts.js",
     "build:win": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win",
+    "build:win:publish": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win --publish=always",
     "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
     "dist": "npm run build:win",

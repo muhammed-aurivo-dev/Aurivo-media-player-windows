@@ -199,7 +199,7 @@ jobs:
 
       - name: Build Windows installer (NSIS) + portable zip (Publish on tag)
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        run: npm run build:win -- --publish=always
+        run: npm run build:win:publish
 
       - name: Upload artifacts (dist)
         uses: actions/upload-artifact@v4
