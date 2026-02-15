@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
 
 jobs:
@@ -189,7 +190,12 @@ jobs:
         run: npm run verify:win:artifacts
 
       - name: Build Windows installer (NSIS) + portable zip
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: npm run build:win
+
+      - name: Build Windows installer (NSIS) + portable zip (Publish on tag)
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run build:win -- --publish=always
 
       - name: Upload artifacts (dist)
         uses: actions/upload-artifact@v4

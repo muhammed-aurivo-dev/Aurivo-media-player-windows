@@ -4,8 +4,16 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+let autoUpdater = null;
 const { registerDawlodIpc } = require('./modules/dawlodHost');
 const { fileURLToPath } = require('url');
+
+// If Electron is running with ELECTRON_RUN_AS_NODE, `app` is not available.
+// Exit cleanly instead of crashing on main-process-only APIs.
+if (!app || typeof app.requestSingleInstanceLock !== 'function') {
+    console.warn('[Startup] Electron app API not available (ELECTRON_RUN_AS_NODE?). Exiting.');
+    process.exit(0);
+}
 
 // MPRIS (Linux Medya Oynatıcı Uzaktan Arayüz Spesifikasyonu)
 let Player = null;
@@ -252,6 +260,7 @@ function detectDisplayServer() {
 // GPU GÜVENLİ MOD (TÜM PLATFORMLAR)
 // ============================================================
 function installGpuFailsafe() {
+    if (!app || typeof app.on !== 'function') return;
     const alreadySoftware = process.env.AURIVO_SOFTWARE_RENDER === '1' || process.env.AURIVO_SOFTWARE_RENDER === 'true';
 
     const triggerFallback = (reason) => {
@@ -335,6 +344,153 @@ let mainWindow;
 let tray = null;
 let lastTrayState = { isPlaying: false, currentTrack: 'Aurivo Media Player', isMuted: false, stopAfterCurrent: false };
 let mprisPlayer = null;
+
+// ============================================
+// AUTO UPDATER (GitHub Releases via electron-updater)
+// ============================================
+const UPDATE_STATE_IPC = 'update:state';
+const UPDATE_META_PATH = () => path.join(app.getPath('userData'), 'update-meta.json');
+const updateState = {
+    supported: false,
+    status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error
+    available: false,
+    version: '',
+    releaseNotes: '',
+    progress: 0,
+    error: ''
+};
+
+function stripHtmlToText(raw) {
+    const s = String(raw || '');
+    if (!s) return '';
+    return s.replace(/<[^>]*>?/gm, '').trim();
+}
+
+function setUpdateState(patch) {
+    try { Object.assign(updateState, patch || {}); } catch { }
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(UPDATE_STATE_IPC, updateState);
+        }
+    } catch {
+        // best-effort
+    }
+}
+
+async function readUpdateMeta() {
+    try {
+        const raw = await fs.promises.readFile(UPDATE_META_PATH(), 'utf8');
+        return JSON.parse(raw);
+    } catch {
+        return {};
+    }
+}
+
+async function writeUpdateMeta(patch) {
+    try {
+        const cur = await readUpdateMeta();
+        const next = { ...(cur || {}), ...(patch || {}) };
+        await fs.promises.writeFile(UPDATE_META_PATH(), JSON.stringify(next, null, 2), 'utf8');
+        return next;
+    } catch {
+        return null;
+    }
+}
+
+async function shouldAutoCheckUpdates() {
+    try {
+        const meta = await readUpdateMeta();
+        const last = Number(meta?.lastCheckAt || 0);
+        const dayMs = 24 * 60 * 60 * 1000;
+        return !last || (Date.now() - last) > dayMs;
+    } catch {
+        return true;
+    }
+}
+
+function initAutoUpdater() {
+    if (!autoUpdater) {
+        try {
+            ({ autoUpdater } = require('electron-updater'));
+        } catch (e) {
+            setUpdateState({ supported: false });
+            console.warn('[Updater] electron-updater not available:', e?.message || e);
+            return;
+        }
+    }
+
+    // Only supported in packaged builds by default.
+    if (!app.isPackaged) {
+        setUpdateState({ supported: false, status: 'idle' });
+        return;
+    }
+
+    updateState.supported = true;
+    try {
+        autoUpdater.autoDownload = false;
+    } catch { }
+
+    autoUpdater.on('checking-for-update', () => {
+        setUpdateState({ status: 'checking', error: '' });
+    });
+
+    autoUpdater.on('update-available', (info) => {
+        setUpdateState({
+            status: 'available',
+            available: true,
+            version: String(info?.version || ''),
+            releaseNotes: stripHtmlToText(info?.releaseNotes) || stripHtmlToText(info?.releaseName) || '',
+            progress: 0,
+            error: ''
+        });
+    });
+
+    autoUpdater.on('update-not-available', () => {
+        setUpdateState({
+            status: 'not-available',
+            available: false,
+            version: '',
+            releaseNotes: '',
+            progress: 0,
+            error: ''
+        });
+    });
+
+    autoUpdater.on('download-progress', (info) => {
+        const p = Math.max(0, Math.min(100, Number(info?.percent || 0)));
+        setUpdateState({ status: 'downloading', progress: p });
+    });
+
+    autoUpdater.on('update-downloaded', () => {
+        setUpdateState({ status: 'downloaded', progress: 100 });
+    });
+
+    autoUpdater.on('error', (err) => {
+        setUpdateState({
+            status: 'error',
+            error: String(err?.message || err || 'unknown error')
+        });
+    });
+
+    // Silent check on startup and then periodically; skip if checked within 24h.
+    setTimeout(async () => {
+        try {
+            const ok = await shouldAutoCheckUpdates();
+            if (!ok) return;
+            await writeUpdateMeta({ lastCheckAt: Date.now() });
+            autoUpdater.checkForUpdates();
+        } catch { }
+    }, 15000);
+
+    setInterval(async () => {
+        try {
+            const ok = await shouldAutoCheckUpdates();
+            if (!ok) return;
+            await writeUpdateMeta({ lastCheckAt: Date.now() });
+            autoUpdater.checkForUpdates();
+        } catch { }
+    }, 60 * 60 * 1000);
+}
 
 // ============================================
 // SINGLE INSTANCE + "OPEN WITH" FILE HANDLING
@@ -2325,6 +2481,7 @@ if (gotSingleInstanceLock) app.whenReady().then(async () => {
     try { installAppMenu(); } catch (e) { console.error('[APP] installAppMenu error:', e); }
     try { registerDawlodIpc({ ipcMain, app, dialog, shell, BrowserWindow }); } catch (e) { console.error('[APP] registerDawlodIpc error:', e); }
     try { createWindow(); } catch (e) { console.error('[APP] createWindow error:', e); }
+    try { initAutoUpdater(); } catch (e) { console.error('[APP] initAutoUpdater error:', e); }
     try { createTray(); } catch (e) { console.error('[APP] createTray error:', e); }
     try { createMPRIS(); } catch (e) { console.error('[APP] createMPRIS error:', e); }
 
@@ -2357,6 +2514,50 @@ app.on('before-quit', () => {
 // ============================================
 // IPC HANDLERS
 // ============================================
+
+// ============================================
+// AUTO UPDATE IPC
+// ============================================
+ipcMain.handle('update:getState', async () => {
+    return updateState;
+});
+
+ipcMain.handle('update:check', async () => {
+    if (!autoUpdater || !app.isPackaged) {
+        setUpdateState({ supported: false, status: 'idle' });
+        return updateState;
+    }
+    try {
+        await writeUpdateMeta({ lastCheckAt: Date.now() });
+        autoUpdater.checkForUpdates();
+        return updateState;
+    } catch (e) {
+        setUpdateState({ status: 'error', error: String(e?.message || e) });
+        return updateState;
+    }
+});
+
+ipcMain.handle('update:download', async () => {
+    if (!autoUpdater || !app.isPackaged) return { ok: false };
+    try {
+        await autoUpdater.downloadUpdate();
+        return { ok: true };
+    } catch (e) {
+        setUpdateState({ status: 'error', error: String(e?.message || e) });
+        return { ok: false };
+    }
+});
+
+ipcMain.handle('update:install', async () => {
+    if (!autoUpdater || !app.isPackaged) return { ok: false };
+    try {
+        autoUpdater.quitAndInstall();
+        return { ok: true };
+    } catch (e) {
+        setUpdateState({ status: 'error', error: String(e?.message || e) });
+        return { ok: false };
+    }
+});
 
 // Dosya/Klasör Seçimi
 ipcMain.handle('dialog:openFile', async () => {

@@ -679,6 +679,19 @@ const aurivoAPI = {
         }
     },
 
+    // AUTO UPDATE (electron-updater bridge)
+    updater: {
+        getState: () => ipcRenderer.invoke('update:getState'),
+        check: () => ipcRenderer.invoke('update:check'),
+        download: () => ipcRenderer.invoke('update:download'),
+        install: () => ipcRenderer.invoke('update:install'),
+        onState: (callback) => {
+            ipcRenderer.on('update:state', (_event, state) => {
+                try { callback(state || null); } catch { }
+            });
+        }
+    },
+
     // I18N
     i18n: {
         loadLocale: (lang) => ipcRenderer.invoke('i18n:loadLocale', lang),

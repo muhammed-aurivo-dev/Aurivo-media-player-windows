@@ -1,6 +1,6 @@
 {
   "name": "aurivo-media-player",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Aurivo Media Player - Electron App",
   "main": "main.js",
   "scripts": {
@@ -23,6 +23,10 @@
   },
   "author": "Muhammet Dali",
   "homepage": "https://aurivo.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows.git"
+  },
   "license": "MIT",
   "build": {
     "appId": "com.aurivo.mediaplayer",
@@ -30,6 +34,12 @@
     "electronVersion": "28.3.3",
     "icon": "icons/aurivo.ico",
     "artifactName": "Aurivo-${version}-${os}-${arch}.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "muhammed-aurivo-dev",
+      "repo": "Aurivo-media-player-windows",
+      "private": false
+    },
     "protocols": [
       {
         "name": "Aurivo Media Player",
@@ -252,6 +262,7 @@
     "png-to-ico": "^3.0.1"
   },
   "dependencies": {
+    "electron-updater": "^6.7.3",
     "mpris-service": "^2.1.2",
     "node-id3": "^0.2.9",
     "systeminformation": "^5.25.11",

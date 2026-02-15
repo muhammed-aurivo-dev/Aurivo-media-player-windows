@@ -318,6 +318,15 @@ function toLocalFileUrl(p) {
 // DOM Öğeleri
 const elements = {};
 
+// ============================================
+// AUTO UPDATE UI STATE
+// ============================================
+const updateUi = {
+    state: null,
+    dismissed: false,
+    dismissedVersion: ''
+};
+
 // Dosya ağacı fare sürükleme seçim durumu
 let fileTreeDragTrack = null; // { startItem, startX, startY, selecting }
 let suppressFileItemClickOnce = false;
@@ -448,6 +457,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSettings();
     await loadPlaylist();
     setupEventListeners();
+    initUpdaterUi();
     applyWebUiClasses();
     setupVisualizer();
     await initializeFileTree();
@@ -627,6 +637,26 @@ function cacheElements() {
     elements.aboutModalOverlay = document.getElementById('aboutModalOverlay');
     elements.aboutCloseBtn = document.getElementById('aboutCloseBtn');
     elements.aboutGithubBtn = document.getElementById('aboutGithubBtn');
+    elements.aboutCheckUpdateBtn = document.getElementById('aboutCheckUpdateBtn');
+    elements.infoUpdateBadge = document.getElementById('infoUpdateBadge');
+
+    // Update UI
+    elements.updateBanner = document.getElementById('updateBanner');
+    elements.updateBannerText = document.getElementById('updateBannerText');
+    elements.updateBannerDetailsBtn = document.getElementById('updateBannerDetailsBtn');
+    elements.updateBannerUpdateBtn = document.getElementById('updateBannerUpdateBtn');
+    elements.updateBannerDismissBtn = document.getElementById('updateBannerDismissBtn');
+
+    elements.updateModalOverlay = document.getElementById('updateModalOverlay');
+    elements.updateModalClose = document.getElementById('updateModalClose');
+    elements.updateCloseBtn = document.getElementById('updateCloseBtn');
+    elements.updateActionBtn = document.getElementById('updateActionBtn');
+    elements.updateStatusText = document.getElementById('updateStatusText');
+    elements.updateVersionText = document.getElementById('updateVersionText');
+    elements.updateNotesText = document.getElementById('updateNotesText');
+    elements.updateProgressWrap = document.getElementById('updateProgressWrap');
+    elements.updateProgressFill = document.getElementById('updateProgressFill');
+    elements.updateProgressText = document.getElementById('updateProgressText');
 
     // Paneller
     elements.leftPanel = document.getElementById('leftPanel');
@@ -835,6 +865,12 @@ function setupEventListeners() {
     if (elements.securityBtn) elements.securityBtn.addEventListener('click', openSecurity);
     if (elements.infoBtn) elements.infoBtn.addEventListener('click', showAbout);
     if (elements.aboutCloseBtn) elements.aboutCloseBtn.addEventListener('click', closeAboutModal);
+    if (elements.aboutCheckUpdateBtn) {
+        elements.aboutCheckUpdateBtn.addEventListener('click', async () => {
+            openUpdateModal();
+            await requestUpdateCheck();
+        });
+    }
     if (elements.aboutGithubBtn) {
         elements.aboutGithubBtn.addEventListener('click', async () => {
             const url = 'https://github.com/muhammeddali1453-beep/Aurivo-Medya-Player';
@@ -853,6 +889,36 @@ function setupEventListeners() {
         elements.aboutModalOverlay.addEventListener('click', (e) => {
             if (e.target === elements.aboutModalOverlay) closeAboutModal();
         });
+    }
+
+    if (elements.updateBannerDetailsBtn) {
+        elements.updateBannerDetailsBtn.addEventListener('click', () => {
+            openUpdateModal();
+        });
+    }
+    if (elements.updateBannerUpdateBtn) {
+        elements.updateBannerUpdateBtn.addEventListener('click', async () => {
+            openUpdateModal();
+            await handlePrimaryUpdateAction();
+        });
+    }
+    if (elements.updateBannerDismissBtn) {
+        elements.updateBannerDismissBtn.addEventListener('click', () => {
+            updateUi.dismissed = true;
+            updateUi.dismissedVersion = String(updateUi.state?.version || '');
+            hideUpdateBanner();
+        });
+    }
+
+    if (elements.updateModalClose) elements.updateModalClose.addEventListener('click', closeUpdateModal);
+    if (elements.updateCloseBtn) elements.updateCloseBtn.addEventListener('click', closeUpdateModal);
+    if (elements.updateModalOverlay) {
+        elements.updateModalOverlay.addEventListener('click', (e) => {
+            if (e.target === elements.updateModalOverlay) closeUpdateModal();
+        });
+    }
+    if (elements.updateActionBtn) {
+        elements.updateActionBtn.addEventListener('click', handlePrimaryUpdateAction);
     }
 
     // Yeniden başlatma modalı (dil)
@@ -1390,6 +1456,198 @@ function getEmbeddedDesktopUserAgent() {
         .trim();
     // Daha güncel Chrome kimliği: bazı servisler eski UA'ları kısıtlayabiliyor.
     return stripped || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
+}
+
+// ============================================
+// UPDATE MODAL + BANNER
+// ============================================
+function isUpdateModalOpen() {
+    return Boolean(elements.updateModalOverlay && !elements.updateModalOverlay.classList.contains('hidden'));
+}
+
+function openUpdateModal() {
+    if (!elements.updateModalOverlay) return;
+    elements.updateModalOverlay.classList.remove('hidden');
+    requestAnimationFrame(() => {
+        elements.updateCloseBtn?.focus?.();
+    });
+}
+
+function closeUpdateModal() {
+    if (!elements.updateModalOverlay) return;
+    elements.updateModalOverlay.classList.add('hidden');
+}
+
+function showUpdateBanner() {
+    if (!elements.updateBanner) return;
+    elements.updateBanner.classList.remove('hidden');
+}
+
+function hideUpdateBanner() {
+    if (!elements.updateBanner) return;
+    elements.updateBanner.classList.add('hidden');
+}
+
+function setInfoUpdateBadgeVisible(visible) {
+    if (!elements.infoUpdateBadge) return;
+    elements.infoUpdateBadge.classList.toggle('hidden', !visible);
+}
+
+function setUpdateProgress(percent) {
+    const p = Math.max(0, Math.min(100, Number(percent || 0)));
+    if (elements.updateProgressFill) elements.updateProgressFill.style.width = `${p}%`;
+    if (elements.updateProgressText) elements.updateProgressText.textContent = `${Math.round(p)}%`;
+}
+
+function updateUpdateUiFromState(st) {
+    updateUi.state = st || null;
+
+    const supported = !!st?.supported;
+    const status = String(st?.status || 'idle');
+    const available = !!st?.available;
+    const version = String(st?.version || '');
+    const notes = String(st?.releaseNotes || '').trim() || '-';
+    const progress = Number(st?.progress || 0);
+    const err = String(st?.error || '').trim();
+
+    // Reset dismiss state when a new version appears
+    if (available && version && updateUi.dismissed && updateUi.dismissedVersion && updateUi.dismissedVersion !== version) {
+        updateUi.dismissed = false;
+        updateUi.dismissedVersion = '';
+    }
+
+    setInfoUpdateBadgeVisible(available);
+
+    if (elements.updateStatusText) {
+        const map = {
+            idle: 'Hazır',
+            checking: 'Kontrol ediliyor...',
+            available: 'Güncelleme bulundu',
+            'not-available': 'Güncelleme yok',
+            downloading: 'İndiriliyor...',
+            downloaded: 'Kuruluma hazır',
+            error: 'Hata'
+        };
+        elements.updateStatusText.textContent = map[status] || status;
+    }
+    if (elements.updateVersionText) elements.updateVersionText.textContent = version || '-';
+    if (elements.updateNotesText) elements.updateNotesText.textContent = notes;
+
+    if (elements.updateProgressWrap) {
+        const show = status === 'downloading' || status === 'downloaded';
+        elements.updateProgressWrap.classList.toggle('hidden', !show);
+    }
+    setUpdateProgress(progress);
+
+    if (elements.updateActionBtn) {
+        if (!supported) {
+            elements.updateActionBtn.textContent = 'Desteklenmiyor';
+            elements.updateActionBtn.disabled = true;
+        } else if (status === 'downloaded') {
+            elements.updateActionBtn.textContent = 'Yeniden başlat ve kur';
+            elements.updateActionBtn.disabled = false;
+        } else if (status === 'downloading') {
+            elements.updateActionBtn.textContent = 'İndiriliyor...';
+            elements.updateActionBtn.disabled = true;
+        } else if (available) {
+            elements.updateActionBtn.textContent = 'Güncelle';
+            elements.updateActionBtn.disabled = false;
+        } else {
+            elements.updateActionBtn.textContent = 'Güncelleme denetle';
+            elements.updateActionBtn.disabled = false;
+        }
+    }
+
+    // Banner logic: only show when update is available/downloading/downloaded/error.
+    if (!elements.updateBanner || !elements.updateBannerText) return;
+
+    if (updateUi.dismissed && available && version && updateUi.dismissedVersion === version) {
+        hideUpdateBanner();
+        return;
+    }
+
+    if (status === 'available') {
+        elements.updateBannerText.textContent = `Yeni sürüm var: ${version || ''}`.trim();
+        if (elements.updateBannerUpdateBtn) elements.updateBannerUpdateBtn.disabled = false;
+        showUpdateBanner();
+    } else if (status === 'downloading') {
+        elements.updateBannerText.textContent = `Güncelleme indiriliyor: ${Math.round(progress)}%`;
+        if (elements.updateBannerUpdateBtn) elements.updateBannerUpdateBtn.disabled = true;
+        showUpdateBanner();
+    } else if (status === 'downloaded') {
+        elements.updateBannerText.textContent = 'Güncelleme indirildi. Kuruluma hazır.';
+        if (elements.updateBannerUpdateBtn) {
+            elements.updateBannerUpdateBtn.disabled = false;
+            elements.updateBannerUpdateBtn.textContent = 'Kur';
+        }
+        showUpdateBanner();
+    } else if (status === 'error') {
+        elements.updateBannerText.textContent = `Güncelleme hatası: ${err || 'Bilinmeyen hata'}`;
+        if (elements.updateBannerUpdateBtn) elements.updateBannerUpdateBtn.disabled = false;
+        showUpdateBanner();
+    } else {
+        // Default: keep banner hidden
+        hideUpdateBanner();
+        if (elements.updateBannerUpdateBtn) elements.updateBannerUpdateBtn.textContent = 'Güncelle';
+    }
+}
+
+async function requestUpdateCheck() {
+    try {
+        const res = await window.aurivo?.updater?.check?.();
+        // Res is the state snapshot; actual updates come via event as well.
+        if (res && typeof res === 'object') updateUpdateUiFromState(res);
+        if (res?.status === 'not-available') safeNotify('Güncelleme yok.', 'info', 2000);
+        if (res?.supported === false) safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+    } catch (e) {
+        safeNotify('Güncelleme kontrolü başarısız: ' + (e?.message || e), 'error', 4000);
+    }
+}
+
+async function handlePrimaryUpdateAction() {
+    const st = updateUi.state || {};
+    const supported = !!st.supported;
+    const status = String(st.status || 'idle');
+    const available = !!st.available;
+
+    if (!supported) {
+        safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+        return;
+    }
+
+    try {
+        if (status === 'downloaded') {
+            await window.aurivo?.updater?.install?.();
+            return;
+        }
+
+        if (available) {
+            await window.aurivo?.updater?.download?.();
+            return;
+        }
+
+        await requestUpdateCheck();
+    } catch (e) {
+        safeNotify('Güncelleme işlemi başarısız: ' + (e?.message || e), 'error', 4500);
+    }
+}
+
+function initUpdaterUi() {
+    try {
+        if (window.aurivo?.updater?.onState) {
+            window.aurivo.updater.onState((st) => {
+                updateUpdateUiFromState(st);
+            });
+        }
+    } catch { }
+
+    // initial snapshot
+    (async () => {
+        try {
+            const st = await window.aurivo?.updater?.getState?.();
+            if (st && typeof st === 'object') updateUpdateUiFromState(st);
+        } catch { }
+    })();
 }
 
 function shouldInjectWebSync(url) {
@@ -6882,6 +7140,15 @@ function handleKeyboard(e) {
         if (e.code === 'Escape') {
             e.preventDefault();
             closeAboutModal();
+        }
+        return;
+    }
+
+    // Update modal açıksa önce onu kapat
+    if (isUpdateModalOpen()) {
+        if (e.code === 'Escape') {
+            e.preventDefault();
+            closeUpdateModal();
         }
         return;
     }

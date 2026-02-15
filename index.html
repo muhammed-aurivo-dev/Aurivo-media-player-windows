@@ -36,10 +36,11 @@
 <button class="sidebar-btn" id="settingsBtn" title="Ayarlar" data-i18n-title="sidebar.settings">
 	                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
 	                </button>
-	                <button class="sidebar-btn" id="infoBtn" title="Hakkında" data-i18n-title="sidebar.about">
-	                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-	                </button>
-	            </div>
+                <button class="sidebar-btn" id="infoBtn" title="Hakkında" data-i18n-title="sidebar.about">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    <span class="sidebar-badge hidden" id="infoUpdateBadge" aria-label="Güncelleme var"></span>
+                </button>
+            </div>
 	        </nav>
 
         <!-- Sol Panel Stack -->
@@ -133,6 +134,16 @@
                 <button class="nav-btn" id="refreshBtn" title="Yenile" data-i18n-title="nav.reload">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                 </button>
+            </div>
+
+            <!-- Update Banner (non-intrusive) -->
+            <div class="update-banner hidden" id="updateBanner" role="status" aria-live="polite">
+                <div class="update-banner-text" id="updateBannerText">Güncelleme kontrol ediliyor...</div>
+                <div class="update-banner-actions">
+                    <button class="btn btn-small" id="updateBannerDetailsBtn" type="button">Detaylar</button>
+                    <button class="btn btn-small primary" id="updateBannerUpdateBtn" type="button">Güncelle</button>
+                    <button class="btn btn-small" id="updateBannerDismissBtn" type="button" title="Kapat" aria-label="Kapat">×</button>
+                </div>
             </div>
 
             <!-- Şu An Çalınan Barı -->
@@ -1100,6 +1111,9 @@
                     </section>
                 </div>
 <div class="about-links">
+                    <button class="btn" id="aboutCheckUpdateBtn" type="button" title="Güncelleme Denetle">
+                        <span>Güncelleme Denetle</span>
+                    </button>
                     <button class="btn github-btn" id="aboutGithubBtn" type="button" title="GitHub'da Görüntüle" data-i18n-title="about.githubTitle">
                         <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                             <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
@@ -1112,6 +1126,36 @@
             <div class="about-actions">
                 <div class="about-footer" data-i18n="about.footer">© 2026 Muhammet Dali. MIT Lisansı ile korunmaktadır.</div>
                 <button class="btn primary about-close-btn" id="aboutCloseBtn" type="button" data-i18n="about.close">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Modal -->
+    <div class="modal-overlay hidden" id="updateModalOverlay" role="presentation">
+        <div class="update-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle">
+            <div class="update-header">
+                <div class="update-title" id="updateModalTitle">Güncelleme</div>
+                <button class="modal-close" id="updateModalClose" aria-label="Close">&times;</button>
+            </div>
+            <div class="update-body">
+                <div class="update-meta">
+                    <div class="update-line"><span class="update-label">Durum:</span> <span id="updateStatusText">Hazır</span></div>
+                    <div class="update-line"><span class="update-label">Yeni sürüm:</span> <span id="updateVersionText">-</span></div>
+                </div>
+                <div class="update-progress hidden" id="updateProgressWrap" aria-label="İndirme ilerlemesi">
+                    <div class="update-progress-bar">
+                        <div class="update-progress-fill" id="updateProgressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="update-progress-text" id="updateProgressText">0%</div>
+                </div>
+                <div class="update-notes-wrap">
+                    <div class="update-notes-title">Yapılan iyileştirmeler</div>
+                    <pre class="update-notes" id="updateNotesText">-</pre>
+                </div>
+            </div>
+            <div class="update-actions">
+                <button class="btn" id="updateActionBtn" type="button">Güncelle</button>
+                <button class="btn primary" id="updateCloseBtn" type="button">Kapat</button>
             </div>
         </div>
     </div>
