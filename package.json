@@ -35,6 +35,9 @@
     "electronVersion": "28.3.3",
     "icon": "icons/aurivo.ico",
     "artifactName": "Aurivo-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "buildResources": "build-resources"
+    },
     "publish": {
       "provider": "github",
       "owner": "muhammed-aurivo-dev",
@@ -248,6 +251,15 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
+      "multiLanguageInstaller": true,
+      "installerLanguages": [
+        "tr_TR",
+        "en_US",
+        "ar_SA"
+      ],
+      "include": "installer.nsh",
+      "installerHeader": "installerHeader.bmp",
+      "installerSidebar": "installerSidebar.bmp",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
