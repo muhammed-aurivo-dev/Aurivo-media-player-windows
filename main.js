@@ -401,8 +401,8 @@ async function shouldAutoCheckUpdates() {
     try {
         const meta = await readUpdateMeta();
         const last = Number(meta?.lastCheckAt || 0);
-        // Don't hammer GitHub, but also don't wait a full day to detect a new release.
-        const minIntervalMs = 2 * 60 * 60 * 1000; // 2h
+        // Check at most once per 24 hours (startup check is handled separately).
+        const minIntervalMs = 24 * 60 * 60 * 1000; // 24h
         return !last || (Date.now() - last) > minIntervalMs;
     } catch {
         return true;
