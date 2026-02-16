@@ -401,8 +401,9 @@ async function shouldAutoCheckUpdates() {
     try {
         const meta = await readUpdateMeta();
         const last = Number(meta?.lastCheckAt || 0);
-        const dayMs = 24 * 60 * 60 * 1000;
-        return !last || (Date.now() - last) > dayMs;
+        // Don't hammer GitHub, but also don't wait a full day to detect a new release.
+        const minIntervalMs = 2 * 60 * 60 * 1000; // 2h
+        return !last || (Date.now() - last) > minIntervalMs;
     } catch {
         return true;
     }
@@ -472,13 +473,11 @@ function initAutoUpdater() {
         });
     });
 
-    // Silent check on startup and then periodically; skip if checked within 24h.
+    // Silent check on startup.
     setTimeout(async () => {
         try {
-            const ok = await shouldAutoCheckUpdates();
-            if (!ok) return;
-            await writeUpdateMeta({ lastCheckAt: Date.now() });
             autoUpdater.checkForUpdates();
+            await writeUpdateMeta({ lastCheckAt: Date.now() });
         } catch { }
     }, 15000);
 
