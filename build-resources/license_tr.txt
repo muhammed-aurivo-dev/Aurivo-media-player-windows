@@ -1,18 +1,16 @@
-Aurivo Medya Player - Hüküm ve Koşullar (EULA)
+Aurivo Medya Player - Kullanım Şartları ve Lisans
 
-Bu yazılımı kurarak veya kullanarak aşağıdaki şartları kabul etmiş olursunuz:
+Lisans
+Aurivo Medya Player, aksi belirtilmedikçe MIT Lisansı ile sunulan ücretsiz ve açık kaynaklı bir yazılımdır.
 
-1. Lisans
-Aurivo Medya Player, aksi belirtilmedikçe MIT Lisansı ile sunulur. Üçüncü taraf bileşenler kendi lisanslarına tabidir.
+İçerik ve Telif Hakları
+Aurivo yalnızca bir medya oynatıcı/yardımcı araçtır. Oynattığınız veya indirdiğiniz içeriklerin telif haklarına uygunluğunu kontrol etmek kullanıcının sorumluluğundadır.
 
-2. Garanti Yoktur
-Bu yazılım "OLDUĞU GİBİ" sunulur ve hiçbir garanti verilmez. Kullanım riski kullanıcıya aittir.
+Garanti
+Yazılım "olduğu gibi" sunulur. Herhangi bir garanti verilmez. Olası veri kaybı veya sistem sorunlarına karşı düzenli yedek almanızı öneririz.
 
-3. Güncellemeler
-Uygulama güncellemeleri denetleyebilir ve resmi yayın kanalından bir kurulum dosyası indirebilir.
+Güncellemeler
+Uygulama, performans ve güvenilirlik iyileştirmeleri için resmi kanallar üzerinden güncellemeleri denetleyebilir.
 
-4. Üçüncü Taraf Bileşenler
-Uygulama üçüncü taraf araç ve kütüphaneler içerebilir/kullanabilir. Bu bileşenlerin lisans koşulları geçerlidir.
-
-Kabul etmiyorsanız bu yazılımı kurmayın veya kullanmayın.
-
+Üçüncü Taraf Bileşenler
+FFmpeg gibi üçüncü taraf bileşenler kendi lisans koşullarına tabidir.

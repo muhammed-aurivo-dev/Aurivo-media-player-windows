@@ -1,18 +1,16 @@
-Aurivo Media Player - Terms and Conditions (EULA)
+Aurivo Media Player - Terms and License
 
-By installing or using this software, you agree to the following:
+License
+Aurivo Media Player is free and open-source software provided under the MIT License, unless stated otherwise for third-party components.
 
-1. License
-Aurivo Media Player is provided under the MIT License unless stated otherwise for third-party components.
+Content & Copyright
+Aurivo is a media player / helper tool. You are responsible for making sure the content you play or download complies with applicable copyright rules in your region.
 
-2. No Warranty
-This software is provided "AS IS", without warranty of any kind. Use it at your own risk.
+Warranty
+This software is provided "AS IS" without warranty of any kind. We recommend keeping regular backups to avoid accidental data loss.
 
-3. Updates
-The application may check for updates and may download an installer from the official release channel.
+Updates
+The app may check for updates via official channels to improve performance and reliability.
 
-4. Third-Party Components
-The application may bundle or use third-party tools and libraries. Their licenses apply to those components.
-
-If you do not agree, do not install or use this software.
-
+Third-Party Components
+Third-party components such as FFmpeg are subject to their own license terms.
