@@ -46,18 +46,42 @@ jobs:
             binutils \
             build-essential \
             cmake \
+            curl \
             ffmpeg \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             libfuse2 \
             libglew-dev \
-            libprojectm-dev \
             libsdl2-dev \
             libsdl2-image-dev \
             ninja-build \
             pkg-config \
             python3 \
             rpm
+
+      # Ubuntu 22.04 ships an older libprojectM (v2.x/3.x) which doesn't provide the v4 C-API
+      # used by our visualizer (projectm_create/projectm_destroy/...).
+      # Build and install libprojectM v4 from source to get the required headers + libraries.
+      - name: Build + install libprojectM v4
+        run: |
+          set -euo pipefail
+          PROJECTM_VER="4.1.6"
+          echo "Downloading libprojectM v${PROJECTM_VER}..."
+          curl -fsSL -o /tmp/libprojectM-${PROJECTM_VER}.tar.gz \
+            "https://sourceforge.net/projects/projectm.mirror/files/v${PROJECTM_VER}/libprojectM-${PROJECTM_VER}.tar.gz/download"
+          tar -xzf /tmp/libprojectM-${PROJECTM_VER}.tar.gz -C /tmp
+
+          echo "Building libprojectM..."
+          cmake -S "/tmp/libprojectM-${PROJECTM_VER}" -B /tmp/build-projectm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=OFF
+          cmake --build /tmp/build-projectm
+          sudo cmake --install /tmp/build-projectm
+          sudo ldconfig
+
+          # Make sure pkg-config can see /usr/local installs.
+          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
 
       - name: Install JS dependencies
         run: npm ci
