@@ -1,0 +1,83 @@
+name: Build (Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+
+# Required for electron-builder to create/update GitHub Releases and upload assets (on tag builds).
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    env:
+      # Keep these in sync with package.json build.electronVersion
+      ELECTRON_VERSION: "28.3.3"
+
+      # Force node-gyp to build against Electron headers (not the host Node.js)
+      npm_config_runtime: "electron"
+      npm_config_target: "28.3.3"
+      npm_config_disturl: "https://electronjs.org/headers"
+      npm_config_build_from_source: "true"
+      
+      # GitHub token for Electron Builder
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils \
+            build-essential \
+            ffmpeg \
+            libfuse2 \
+            python3 \
+            rpm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build native audio addon (aurivo_audio.node)
+        run: npm --prefix native ci
+
+      - name: Ensure Linux binaries are executable
+        run: |
+          set -euo pipefail
+          if [ -f "native-dist/aurivo-projectm-visualizer" ]; then
+            chmod +x native-dist/aurivo-projectm-visualizer
+          fi
+          test -f native-dist/aurivo-projectm-visualizer
+
+      - name: Build Linux packages (AppImage/deb/rpm)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run build:linux
+
+      - name: Build + Publish (GitHub Release) on tag
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run build:linux -- --publish=always
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist-${{ github.run_id }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+            dist/*.yml

@@ -19,14 +19,14 @@
     "build:win:publish": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win --publish=always",
     "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
-    "dist": "npm run build:win",
+    "dist": "npm run build:linux",
     "dev:win": "cmd /c \"chcp 65001>nul && set ELECTRON_RUN_AS_NODE=&& set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
   },
   "author": "Muhammet Dali",
   "homepage": "https://aurivo.app",
   "repository": {
     "type": "git",
-    "url": "https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows.git"
+    "url": "https://github.com/muhammed-aurivo-dev/Aurivo-Medya-Player-Linux.git"
   },
   "license": "MIT",
   "build": {
@@ -41,7 +41,7 @@
     "publish": {
       "provider": "github",
       "owner": "muhammed-aurivo-dev",
-      "repo": "Aurivo-media-player-windows",
+      "repo": "Aurivo-Medya-Player-Linux",
       "private": false
     },
     "protocols": [
@@ -120,7 +120,9 @@
     ],
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb",
+        "rpm"
       ],
       "maintainer": "Aurivo <support@aurivo.app>",
       "category": "AudioVideo",
