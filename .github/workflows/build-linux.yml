@@ -141,6 +141,4 @@ jobs:
           name: linux-dist-${{ github.run_id }}
           path: |
             dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
             dist/*.yml
