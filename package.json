@@ -53,38 +53,23 @@
       }
     ],
     "fileAssociations": [
-      {
-        "name": "Aurivo Audio",
-        "description": "Aurivo Media Player Audio",
-        "role": "Viewer",
-        "icon": "icons/aurivo.ico",
-        "ext": [
-          "mp3",
-          "wav",
-          "flac",
-          "aac",
-          "ogg",
-          "m4a",
-          "opus",
-          "aiff",
-          "wma"
-        ]
-      },
-      {
-        "name": "Aurivo Video",
-        "description": "Aurivo Media Player Video",
-        "role": "Viewer",
-        "icon": "icons/aurivo.ico",
-        "ext": [
-          "mp4",
-          "mkv",
-          "avi",
-          "mov",
-          "wmv",
-          "webm",
-          "m4v"
-        ]
-      }
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mp3" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wav" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "flac" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "aac" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "ogg" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "m4a" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "opus" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "aiff" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wma" },
+
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mp4" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mkv" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "avi" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mov" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wmv" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "webm" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "m4v" }
     ],
     "asarUnpack": [
       "**/*.node",
