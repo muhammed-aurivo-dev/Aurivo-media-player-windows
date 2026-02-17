@@ -25,6 +25,20 @@ endif()
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIR})
 
+# Find GLEW (use pkg-config on Linux/macOS; Windows can still use glew32)
+pkg_check_modules(GLEW glew)
+if(GLEW_FOUND)
+    include_directories(${GLEW_INCLUDE_DIRS})
+    link_directories(${GLEW_LIBRARY_DIRS})
+else()
+    if (WIN32)
+        message(STATUS "GLEW pkg-config not found; using glew32 fallback")
+        set(GLEW_LIBRARIES "glew32")
+    else()
+        message(FATAL_ERROR "GLEW not found (pkg-config: glew). Install development package (e.g. libglew-dev).")
+    endif()
+endif()
+
 # Threads (portable replacement for hardcoded pthread)
 find_package(Threads REQUIRED)
 
@@ -71,6 +85,7 @@ target_include_directories(imgui PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}
     ${SDL2_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIR}
+    ${GLEW_INCLUDE_DIRS}
 )
 
 target_compile_definitions(imgui PRIVATE
@@ -104,7 +119,7 @@ endif()
 target_link_libraries(aurivo-projectm-visualizer
     ${SDL2_LIBRARIES}
     ${OPENGL_LIBRARIES}
-    glew32
+    ${GLEW_LIBRARIES}
     imgui
     ${PROJECTM_LIBRARIES}
     ${PROJECTM_PLAYLIST_LIBRARIES}
@@ -130,5 +145,4 @@ endif()
 install(TARGETS aurivo-projectm-visualizer
     RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/../native-dist
 )
-
 

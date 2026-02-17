@@ -45,8 +45,17 @@ jobs:
           sudo apt-get install -y \
             binutils \
             build-essential \
+            cmake \
             ffmpeg \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
             libfuse2 \
+            libglew-dev \
+            libprojectm-dev \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            ninja-build \
+            pkg-config \
             python3 \
             rpm
 
@@ -56,13 +65,15 @@ jobs:
       - name: Build native audio addon (aurivo_audio.node)
         run: npm --prefix native ci
 
-      - name: Ensure Linux binaries are executable
+      - name: Build projectM visualizer (aurivo-projectm-visualizer)
         run: |
           set -euo pipefail
-          if [ -f "native-dist/aurivo-projectm-visualizer" ]; then
-            chmod +x native-dist/aurivo-projectm-visualizer
-          fi
+          cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-visualizer
+          mkdir -p native-dist
+          cp -f build-visualizer/aurivo-projectm-visualizer native-dist/aurivo-projectm-visualizer
           test -f native-dist/aurivo-projectm-visualizer
+          chmod +x native-dist/aurivo-projectm-visualizer
 
       - name: Build Linux packages (AppImage/deb/rpm)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
