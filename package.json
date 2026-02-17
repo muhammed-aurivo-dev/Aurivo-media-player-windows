@@ -152,8 +152,13 @@
           ]
         },
         {
-          "from": "native-dist/aurivo-projectm-visualizer",
-          "to": "resources/native-dist/aurivo-projectm-visualizer"
+          "from": "native-dist",
+          "to": "resources/native-dist",
+          "filter": [
+            "aurivo-projectm-visualizer",
+            "libprojectM-4.so*",
+            "libprojectM-4-playlist.so*"
+          ]
         },
         {
           "from": "third_party/projectm/presets",
