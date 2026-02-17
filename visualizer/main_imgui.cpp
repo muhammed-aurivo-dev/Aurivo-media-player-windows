@@ -48,9 +48,26 @@
 #include <unistd.h>
 #endif
 
+// projectM headers differ by distro/package. Try common layouts.
+#if __has_include(<projectM-4/projectM.h>) && __has_include(<projectM-4/audio.h>) && __has_include(<projectM-4/types.h>)
 #include <projectM-4/projectM.h>
 #include <projectM-4/audio.h>
 #include <projectM-4/types.h>
+#elif __has_include(<projectM/projectM.h>) && __has_include(<projectM/audio.h>) && __has_include(<projectM/types.h>)
+#include <projectM/projectM.h>
+#include <projectM/audio.h>
+#include <projectM/types.h>
+#elif __has_include(<libprojectM/projectM.h>) && __has_include(<libprojectM/audio.h>) && __has_include(<libprojectM/types.h>)
+#include <libprojectM/projectM.h>
+#include <libprojectM/audio.h>
+#include <libprojectM/types.h>
+#elif __has_include(<projectM.h>) && __has_include(<audio.h>) && __has_include(<types.h>)
+#include <projectM.h>
+#include <audio.h>
+#include <types.h>
+#else
+#error "projectM headers not found. Install libprojectm-dev (and playlist dev package if required) or adjust include paths."
+#endif
 
 #include "gl_loader.h"
 
@@ -2617,7 +2634,6 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
-
 
 
 

@@ -43,18 +43,37 @@ endif()
 find_package(Threads REQUIRED)
 
 # Use system libprojectm instead of bundled Clementine version
+# Ubuntu/Debian typically ship `libprojectM` pkg-config; some distros ship `projectM-4`.
+# Try a few common pkg-config names for both core + playlist.
 pkg_check_modules(PROJECTM projectM-4)
+if(NOT PROJECTM_FOUND)
+    pkg_check_modules(PROJECTM libprojectM)
+endif()
+if(NOT PROJECTM_FOUND)
+    pkg_check_modules(PROJECTM projectM)
+endif()
+
 pkg_check_modules(PROJECTM_PLAYLIST projectM-4-playlist)
+if(NOT PROJECTM_PLAYLIST_FOUND)
+    pkg_check_modules(PROJECTM_PLAYLIST libprojectM-playlist)
+endif()
+if(NOT PROJECTM_PLAYLIST_FOUND)
+    pkg_check_modules(PROJECTM_PLAYLIST projectM-playlist)
+endif()
 include_directories(${PROJECTM_INCLUDE_DIRS} ${PROJECTM_PLAYLIST_INCLUDE_DIRS})
 link_directories(${PROJECTM_LIBRARY_DIRS} ${PROJECTM_PLAYLIST_LIBRARY_DIRS})
 
-# Windows fallback when pkg-config doesn't provide projectM-4
+# Windows fallback when pkg-config doesn't provide projectM
 if (WIN32 AND (NOT PROJECTM_FOUND OR NOT PROJECTM_PLAYLIST_FOUND))
     message(STATUS "projectM pkg-config not found; using MSYS2 fallback paths")
     set(PROJECTM_INCLUDE_DIRS "C:/msys64/mingw64/include")
     set(PROJECTM_LIBRARY_DIRS "C:/msys64/mingw64/lib")
     set(PROJECTM_LIBRARIES "projectM-4")
     set(PROJECTM_PLAYLIST_LIBRARIES "projectM-4-playlist")
+endif()
+
+if ((NOT WIN32) AND (NOT PROJECTM_FOUND))
+    message(FATAL_ERROR "projectM not found via pkg-config. Install libprojectm-dev (or projectM-4 dev package).")
 endif()
 
 # Dear ImGui (vendored)
@@ -145,4 +164,3 @@ endif()
 install(TARGETS aurivo-projectm-visualizer
     RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/../native-dist
 )
-
