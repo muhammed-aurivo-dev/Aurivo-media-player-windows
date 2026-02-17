@@ -48,25 +48,80 @@
 #include <unistd.h>
 #endif
 
-// projectM headers differ by distro/package. Try common layouts.
-#if __has_include(<projectM-4/projectM.h>) && __has_include(<projectM-4/audio.h>) && __has_include(<projectM-4/types.h>)
-#include <projectM-4/projectM.h>
-#include <projectM-4/audio.h>
-#include <projectM-4/types.h>
-#elif __has_include(<projectM/projectM.h>) && __has_include(<projectM/audio.h>) && __has_include(<projectM/types.h>)
-#include <projectM/projectM.h>
-#include <projectM/audio.h>
-#include <projectM/types.h>
-#elif __has_include(<libprojectM/projectM.h>) && __has_include(<libprojectM/audio.h>) && __has_include(<libprojectM/types.h>)
-#include <libprojectM/projectM.h>
-#include <libprojectM/audio.h>
-#include <libprojectM/types.h>
-#elif __has_include(<projectM.h>) && __has_include(<audio.h>) && __has_include(<types.h>)
-#include <projectM.h>
-#include <audio.h>
-#include <types.h>
+// projectM headers differ by distro/package/version.
+// Some distros ship a "projectM.h" umbrella header; others require including individual API headers.
+// Include the umbrella if present, then explicitly include the C-API headers we rely on.
+#if __has_include(<projectM-4/projectM.h>)
+  #include <projectM-4/projectM.h>
+#elif __has_include(<projectM/projectM.h>)
+  #include <projectM/projectM.h>
+#elif __has_include(<libprojectM/projectM.h>)
+  #include <libprojectM/projectM.h>
+#elif __has_include(<projectM.h>)
+  #include <projectM.h>
 #else
-#error "projectM headers not found. Install libprojectm-dev (and playlist dev package if required) or adjust include paths."
+  #error "projectM headers not found. Install libprojectm-dev (and playlist dev package if required) or adjust include paths."
+#endif
+
+// Ensure types + the specific APIs used in this file are declared (some umbrellas don't include everything).
+#if __has_include(<projectM-4/types.h>)
+  #include <projectM-4/types.h>
+  #include <projectM-4/audio.h>
+  #include <projectM-4/core.h>
+  #include <projectM-4/parameters.h>
+  #include <projectM-4/render_opengl.h>
+  #include <projectM-4/version.h>
+#elif __has_include(<projectM/types.h>)
+  #include <projectM/types.h>
+  #if __has_include(<projectM/audio.h>)
+    #include <projectM/audio.h>
+  #endif
+  #if __has_include(<projectM/core.h>)
+    #include <projectM/core.h>
+  #endif
+  #if __has_include(<projectM/parameters.h>)
+    #include <projectM/parameters.h>
+  #endif
+  #if __has_include(<projectM/render_opengl.h>)
+    #include <projectM/render_opengl.h>
+  #endif
+  #if __has_include(<projectM/version.h>)
+    #include <projectM/version.h>
+  #endif
+#elif __has_include(<libprojectM/types.h>)
+  #include <libprojectM/types.h>
+  #if __has_include(<libprojectM/audio.h>)
+    #include <libprojectM/audio.h>
+  #endif
+  #if __has_include(<libprojectM/core.h>)
+    #include <libprojectM/core.h>
+  #endif
+  #if __has_include(<libprojectM/parameters.h>)
+    #include <libprojectM/parameters.h>
+  #endif
+  #if __has_include(<libprojectM/render_opengl.h>)
+    #include <libprojectM/render_opengl.h>
+  #endif
+  #if __has_include(<libprojectM/version.h>)
+    #include <libprojectM/version.h>
+  #endif
+#elif __has_include(<types.h>)
+  #include <types.h>
+  #if __has_include(<audio.h>)
+    #include <audio.h>
+  #endif
+  #if __has_include(<core.h>)
+    #include <core.h>
+  #endif
+  #if __has_include(<parameters.h>)
+    #include <parameters.h>
+  #endif
+  #if __has_include(<render_opengl.h>)
+    #include <render_opengl.h>
+  #endif
+  #if __has_include(<version.h>)
+    #include <version.h>
+  #endif
 #endif
 
 #include "gl_loader.h"
@@ -2255,7 +2310,13 @@ static bool initProjectM() {
     }
 
     std::cout << "[projectM] create ok" << std::endl;
+    // projectM v4 C-API provides this query; older/packaged variants might not.
+    // Fall back to a safe default buffer size (512 samples/channel) if unavailable.
+#if defined(PROJECTM_VERSION_MAJOR) && (PROJECTM_VERSION_MAJOR >= 4)
     g.pmMaxSamplesPerChannel = projectm_pcm_get_max_samples();
+#else
+    g.pmMaxSamplesPerChannel = 512;
+#endif
     std::cout << "[Audio] projectM max samples/channel: " << g.pmMaxSamplesPerChannel << std::endl;
 
     applyQuality(g.quality);
@@ -2634,7 +2695,6 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
-
 
 
 

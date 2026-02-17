@@ -63,6 +63,23 @@ endif()
 include_directories(${PROJECTM_INCLUDE_DIRS} ${PROJECTM_PLAYLIST_INCLUDE_DIRS})
 link_directories(${PROJECTM_LIBRARY_DIRS} ${PROJECTM_PLAYLIST_LIBRARY_DIRS})
 
+# Some distributions ship broken pkg-config .pc files for projectM that emit "-l:projectM-4"
+# instead of "-lprojectM-4" or "-l:libprojectM-4.so". CMake will pass this through verbatim and
+# the linker won't find the library. Strip an optional leading ":" from library entries.
+function(aurivo_strip_colon_prefix out_var in_var)
+    set(out "")
+    foreach(item IN LISTS ${in_var})
+        string(REGEX REPLACE "^:" "" item "${item}")
+        list(APPEND out "${item}")
+    endforeach()
+    set(${out_var} "${out}" PARENT_SCOPE)
+endfunction()
+
+aurivo_strip_colon_prefix(PROJECTM_LIBRARIES_STRIPPED PROJECTM_LIBRARIES)
+set(PROJECTM_LIBRARIES "${PROJECTM_LIBRARIES_STRIPPED}")
+aurivo_strip_colon_prefix(PROJECTM_PLAYLIST_LIBRARIES_STRIPPED PROJECTM_PLAYLIST_LIBRARIES)
+set(PROJECTM_PLAYLIST_LIBRARIES "${PROJECTM_PLAYLIST_LIBRARIES_STRIPPED}")
+
 # Windows fallback when pkg-config doesn't provide projectM
 if (WIN32 AND (NOT PROJECTM_FOUND OR NOT PROJECTM_PLAYLIST_FOUND))
     message(STATUS "projectM pkg-config not found; using MSYS2 fallback paths")
