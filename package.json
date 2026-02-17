@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "npm run dev:win",
+    "dev": "node scripts/dev-platform.js",
     "install:desktop:linux": "bash scripts/install-desktop-linux.sh",
     "gen:icon:transparent": "bash scripts/generate-transparent-icon.sh",
     "gen:win:ico": "node scripts/generate-windows-ico.js",

@@ -7281,6 +7281,24 @@ function handleKeyboard(e) {
 // ============================================
 let audioContext, analyser, dataArray;
 
+function getCanvasScale(canvas) {
+    try {
+        const rect = canvas.getBoundingClientRect?.();
+        const cssW = Number(rect?.width) || canvas.offsetWidth || canvas.width || 1;
+        const cssH = Number(rect?.height) || canvas.offsetHeight || canvas.height || 1;
+        const scaleX = cssW > 0 ? (canvas.width / cssW) : 1;
+        const scaleY = cssH > 0 ? (canvas.height / cssH) : 1;
+        return {
+            cssW: Math.max(1, Math.round(cssW)),
+            cssH: Math.max(1, Math.round(cssH)),
+            scaleX: Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
+            scaleY: Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1
+        };
+    } catch {
+        return { cssW: canvas.width || 1, cssH: canvas.height || 1, scaleX: 1, scaleY: 1 };
+    }
+}
+
 // Görselleştirici Ayarları
 const VisualizerSettings = {
     currentAnalyzer: 'bar',
@@ -7377,16 +7395,22 @@ const BarAnalyzer = {
     resize() {
         if (!this.canvas) return;
 
+        const { cssW, cssH, scaleX, scaleY } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
         const height = this.canvas.height;
 
         if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.COLUMN_WIDTH + this.GAP));
+        // Keep bar thickness stable in CSS pixels; renderScale should only affect sharpness.
+        this._colW = Math.max(1, Math.round(this.COLUMN_WIDTH * scaleX));
+        this._gap = Math.max(0, Math.round(this.GAP * scaleX));
+        this._step = this._colW + this._gap;
+
+        this.bandCount = Math.floor(cssW / (this.COLUMN_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
 
-        this.maxDown = -Math.max(1, Math.floor(height / 50));
-        this.maxUp = Math.max(1, Math.floor(height / 25));
+        this.maxDown = -Math.max(1, Math.floor((cssH / 50) * scaleY));
+        this.maxUp = Math.max(1, Math.floor((cssH / 25) * scaleY));
 
         // Dizileri sıfırla
         this.barVector = new Array(this.bandCount).fill(0);
@@ -7425,6 +7449,8 @@ const BarAnalyzer = {
         const canvas = this.canvas;
         const width = canvas.width;
         const height = canvas.height;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
 
         // Canvas'ı temizle
         ctx.fillStyle = '#121212';
@@ -7446,7 +7472,7 @@ const BarAnalyzer = {
 
         // Her bandı işle
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
 
             // Spektrum değerini yüksekliğe eşle
             let y2 = Math.floor(scope[i] * 256);
@@ -7469,7 +7495,7 @@ const BarAnalyzer = {
             // Gradient ile bar çiz
             if (y2 > 0) {
                 ctx.fillStyle = this.getBarGradient(x, height, y2);
-                ctx.fillRect(x, height - y2, this.COLUMN_WIDTH, y2);
+                ctx.fillRect(x, height - y2, colW, y2);
             }
 
             // Tavanı çiz (peak göstergeleri)
@@ -7483,7 +7509,7 @@ const BarAnalyzer = {
                 const alpha = 1 - (c / this.NUM_ROOFS);
                 const hue = (this.hueOffset + (i / this.bandCount) * 360) % 360;
                 ctx.fillStyle = `hsla(${hue}, 100%, 70%, ${alpha * 0.5})`;
-                ctx.fillRect(x, roofY, this.COLUMN_WIDTH, 2);
+                ctx.fillRect(x, roofY, colW, 2);
             }
 
             // Mevcut tavan
@@ -7493,7 +7519,7 @@ const BarAnalyzer = {
             // Mevcut tavanı çiz (peak)
             const roofHue = (this.hueOffset + (i / this.bandCount) * 360 + 180) % 360;
             ctx.fillStyle = `hsl(${roofHue}, 100%, 80%)`;
-            ctx.fillRect(x, roofY, this.COLUMN_WIDTH, 2);
+            ctx.fillRect(x, roofY, colW, 2);
 
             // Tavan fiziğini güncelle
             if (this.roofVelocityVector[i] !== 0) {
@@ -7515,12 +7541,14 @@ const BarAnalyzer = {
     drawIdleBars() {
         const ctx = this.ctx;
         const canvas = this.canvas;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
 
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
             const hue = (this.hueOffset + (i / this.bandCount) * 360) % 360;
             ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
-            ctx.fillRect(x, canvas.height - 3, this.COLUMN_WIDTH, 3);
+            ctx.fillRect(x, canvas.height - 3, colW, 3);
         }
 
         this.hueOffset = (this.hueOffset + 0.2) % 360;
@@ -7573,13 +7601,21 @@ const BlockAnalyzer = {
 
     resize() {
         if (!this.canvas) return;
+        const { cssW, cssH, scaleX, scaleY } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
         const height = this.canvas.height;
         if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.BLOCK_WIDTH + this.GAP));
+        this._blockW = Math.max(1, Math.round(this.BLOCK_WIDTH * scaleX));
+        this._blockH = Math.max(1, Math.round(this.BLOCK_HEIGHT * scaleY));
+        this._gapX = Math.max(0, Math.round(this.GAP * scaleX));
+        this._gapY = Math.max(0, Math.round(this.GAP * scaleY));
+        this._stepX = this._blockW + this._gapX;
+        this._stepY = this._blockH + this._gapY;
+
+        this.bandCount = Math.floor(cssW / (this.BLOCK_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
-        this.rows = Math.floor(height / (this.BLOCK_HEIGHT + this.GAP));
+        this.rows = Math.floor(cssH / (this.BLOCK_HEIGHT + this.GAP));
         if (this.rows === 0) this.rows = 1;
 
         this.scope = new Array(this.bandCount).fill(0);
@@ -7622,11 +7658,11 @@ const BlockAnalyzer = {
             }
 
             const row = Math.min(this.bandInfo[x].row, this.rows);
-            const xPos = x * (this.BLOCK_WIDTH + this.GAP);
+            const xPos = x * (this._stepX || (this.BLOCK_WIDTH + this.GAP));
 
             // Draw blocks
             for (let y = 0; y < row; y++) {
-                const yPos = height - (y + 1) * (this.BLOCK_HEIGHT + this.GAP);
+                const yPos = height - (y + 1) * (this._stepY || (this.BLOCK_HEIGHT + this.GAP));
                 const intensity = 1 - (y / this.rows);
 
                 if (VisualizerSettings.psychedelicEnabled) {
@@ -7637,7 +7673,7 @@ const BlockAnalyzer = {
                     ctx.fillStyle = `rgb(0, ${g}, ${Math.floor(g * 0.8)})`;
                 }
 
-                ctx.fillRect(xPos, yPos, this.BLOCK_WIDTH, this.BLOCK_HEIGHT);
+                ctx.fillRect(xPos, yPos, this._blockW || this.BLOCK_WIDTH, this._blockH || this.BLOCK_HEIGHT);
             }
         }
     },
@@ -7646,10 +7682,15 @@ const BlockAnalyzer = {
         const ctx = this.ctx;
         const canvas = this.canvas;
         for (let x = 0; x < this.bandCount; x++) {
-            const xPos = x * (this.BLOCK_WIDTH + this.GAP);
+            const xPos = x * (this._stepX || (this.BLOCK_WIDTH + this.GAP));
             const hue = (this.hueOffset + (x / this.bandCount) * 360) % 360;
             ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
-            ctx.fillRect(xPos, canvas.height - this.BLOCK_HEIGHT, this.BLOCK_WIDTH, this.BLOCK_HEIGHT);
+            ctx.fillRect(
+                xPos,
+                canvas.height - (this._blockH || this.BLOCK_HEIGHT),
+                this._blockW || this.BLOCK_WIDTH,
+                this._blockH || this.BLOCK_HEIGHT
+            );
         }
         this.hueOffset = (this.hueOffset + 0.2) % 360;
     },
@@ -7695,11 +7736,16 @@ const BoomAnalyzer = {
 
     resize() {
         if (!this.canvas) return;
+        const { cssW, scaleX } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
         const height = this.canvas.height;
         if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.COLUMN_WIDTH + this.GAP));
+        this._colW = Math.max(1, Math.round(this.COLUMN_WIDTH * scaleX));
+        this._gap = Math.max(0, Math.round(this.GAP * scaleX));
+        this._step = this._colW + this._gap;
+
+        this.bandCount = Math.floor(cssW / (this.COLUMN_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
 
         this.F = height / (Math.log10(256) * 1.1);
@@ -7728,9 +7774,11 @@ const BoomAnalyzer = {
 
         const scope = this.interpolateSpectrum(spectrumData, this.bandCount);
         const maxHeight = height - 1;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
 
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
             let h = Math.log10(scope[i] * 256 + 1) * this.F;
             if (h > maxHeight) h = maxHeight;
 
@@ -7771,7 +7819,7 @@ const BoomAnalyzer = {
                     gradient.addColorStop(1, '#004422');
                 }
                 ctx.fillStyle = gradient;
-                ctx.fillRect(x, y, this.COLUMN_WIDTH, this.barHeight[i]);
+                ctx.fillRect(x, y, colW, this.barHeight[i]);
             }
 
             // Draw peak
@@ -7782,18 +7830,20 @@ const BoomAnalyzer = {
             } else {
                 ctx.fillStyle = '#ffffff';
             }
-            ctx.fillRect(x, peakY - 2, this.COLUMN_WIDTH, 2);
+            ctx.fillRect(x, peakY - 2, colW, 2);
         }
     },
 
     drawIdle() {
         const ctx = this.ctx;
         const canvas = this.canvas;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
             const hue = (this.hueOffset + (i / this.bandCount) * 360) % 360;
             ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
-            ctx.fillRect(x, canvas.height - 3, this.COLUMN_WIDTH, 3);
+            ctx.fillRect(x, canvas.height - 3, colW, 3);
         }
         this.hueOffset = (this.hueOffset + 0.2) % 360;
     },
@@ -7839,11 +7889,16 @@ const TurbineAnalyzer = {
 
     resize() {
         if (!this.canvas) return;
+        const { cssW, scaleX } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
         const height = this.canvas.height;
         if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.COLUMN_WIDTH + this.GAP));
+        this._colW = Math.max(1, Math.round(this.COLUMN_WIDTH * scaleX));
+        this._gap = Math.max(0, Math.round(this.GAP * scaleX));
+        this._step = this._colW + this._gap;
+
+        this.bandCount = Math.floor(cssW / (this.COLUMN_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
 
         this.F = (height / 2) / (Math.log10(256) * 1.1);
@@ -7873,9 +7928,11 @@ const TurbineAnalyzer = {
 
         const scope = this.interpolateSpectrum(spectrumData, this.bandCount);
         const maxHeight = hd2 - 1;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
 
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
             let h = Math.min(Math.log10(scope[i] * 256 + 1) * this.F * 0.5, maxHeight);
 
             if (h > this.barHeight[i]) {
@@ -7915,9 +7972,9 @@ const TurbineAnalyzer = {
                 ctx.fillStyle = gradient;
 
                 // Top bar
-                ctx.fillRect(x, hd2 - barH, this.COLUMN_WIDTH, barH);
+                ctx.fillRect(x, hd2 - barH, colW, barH);
                 // Bottom bar (mirrored)
-                ctx.fillRect(x, hd2, this.COLUMN_WIDTH, barH);
+                ctx.fillRect(x, hd2, colW, barH);
             }
 
             // Draw peaks
@@ -7928,8 +7985,8 @@ const TurbineAnalyzer = {
             } else {
                 ctx.fillStyle = '#88ccff';
             }
-            ctx.fillRect(x, hd2 - peakH - 1, this.COLUMN_WIDTH, 2);
-            ctx.fillRect(x, hd2 + peakH - 1, this.COLUMN_WIDTH, 2);
+            ctx.fillRect(x, hd2 - peakH - 1, colW, 2);
+            ctx.fillRect(x, hd2 + peakH - 1, colW, 2);
         }
 
         // Center line
@@ -7941,11 +7998,13 @@ const TurbineAnalyzer = {
         const ctx = this.ctx;
         const canvas = this.canvas;
         const hd2 = canvas.height / 2;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
             const hue = (this.hueOffset + (i / this.bandCount) * 360) % 360;
             ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
-            ctx.fillRect(x, hd2 - 2, this.COLUMN_WIDTH, 4);
+            ctx.fillRect(x, hd2 - 2, colW, 4);
         }
         this.hueOffset = (this.hueOffset + 0.2) % 360;
     },
@@ -8117,6 +8176,11 @@ const RainbowDashAnalyzer = {
     barHeight: [],
     hueOffset: 0,
     waveOffset: 0,
+    _colW: null,
+    _gap: null,
+    _step: null,
+    _scaleX: 1,
+    _scaleY: 1,
     canvas: null,
     ctx: null,
 
@@ -8128,10 +8192,19 @@ const RainbowDashAnalyzer = {
 
     resize() {
         if (!this.canvas) return;
+        const { cssW, scaleX, scaleY } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
-        if (width <= 0) return;
+        const height = this.canvas.height;
+        if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.COLUMN_WIDTH + this.GAP));
+        // Keep bar thickness stable in CSS pixels; renderScale should only affect sharpness.
+        this._scaleX = scaleX;
+        this._scaleY = scaleY;
+        this._colW = Math.max(1, Math.round(this.COLUMN_WIDTH * scaleX));
+        this._gap = Math.max(0, Math.round(this.GAP * scaleX));
+        this._step = this._colW + this._gap;
+
+        this.bandCount = Math.floor(cssW / (this.COLUMN_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
         this.barHeight = new Array(this.bandCount).fill(0);
     },
@@ -8141,6 +8214,10 @@ const RainbowDashAnalyzer = {
         const canvas = this.canvas;
         const width = canvas.width;
         const height = canvas.height;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
+        const scaleX = this._scaleX || 1;
+        const scaleY = this._scaleY || 1;
 
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, width, height);
@@ -8153,12 +8230,13 @@ const RainbowDashAnalyzer = {
             : new Array(this.bandCount).fill(0);
 
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
 
             // Add wave effect
-            const wave = Math.sin(this.waveOffset + i * 0.3) * 10;
+            const wave = Math.sin(this.waveOffset + i * 0.3) * 10 * scaleY;
             let targetHeight = scope[i] * height * 0.8 + (isPlaying ? wave : 0);
-            if (targetHeight < 5) targetHeight = 5;
+            const minH = 5 * scaleY;
+            if (targetHeight < minH) targetHeight = minH;
 
             // Smooth animation
             this.barHeight[i] += (targetHeight - this.barHeight[i]) * 0.3;
@@ -8179,16 +8257,17 @@ const RainbowDashAnalyzer = {
             ctx.fillStyle = gradient;
 
             // Rounded bars
-            const radius = Math.min(this.COLUMN_WIDTH / 2, 3);
+            const radiusCap = Math.max(1, Math.round(3 * scaleX));
+            const radius = Math.min(colW / 2, radiusCap);
             ctx.beginPath();
-            ctx.roundRect(x, y, this.COLUMN_WIDTH, barH, [radius, radius, 0, 0]);
+            ctx.roundRect(x, y, colW, barH, [radius, radius, 0, 0]);
             ctx.fill();
 
             // Parlama efekti
             if (VisualizerSettings.glowEnabled && barH > 10) {
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = `hsl(${hue1}, 100%, 50%)`;
-                ctx.fillRect(x, y, this.COLUMN_WIDTH, 2);
+                ctx.fillRect(x, y, colW, Math.max(1, Math.round(2 * scaleY)));
                 ctx.shadowBlur = 0;
             }
         }
@@ -8219,6 +8298,11 @@ const NyanalyzerCatAnalyzer = {
     barHeight: [],
     starPositions: [],
     hueOffset: 0,
+    _colW: null,
+    _gap: null,
+    _step: null,
+    _scaleX: 1,
+    _scaleY: 1,
     canvas: null,
     ctx: null,
 
@@ -8231,10 +8315,19 @@ const NyanalyzerCatAnalyzer = {
 
     resize() {
         if (!this.canvas) return;
+        const { cssW, scaleX, scaleY } = getCanvasScale(this.canvas);
         const width = this.canvas.width;
-        if (width <= 0) return;
+        const height = this.canvas.height;
+        if (width <= 0 || height <= 0) return;
 
-        this.bandCount = Math.floor(width / (this.COLUMN_WIDTH + this.GAP));
+        // Keep bar thickness stable in CSS pixels; renderScale should only affect sharpness.
+        this._scaleX = scaleX;
+        this._scaleY = scaleY;
+        this._colW = Math.max(1, Math.round(this.COLUMN_WIDTH * scaleX));
+        this._gap = Math.max(0, Math.round(this.GAP * scaleX));
+        this._step = this._colW + this._gap;
+
+        this.bandCount = Math.floor(cssW / (this.COLUMN_WIDTH + this.GAP));
         if (this.bandCount === 0) this.bandCount = 1;
         this.barHeight = new Array(this.bandCount).fill(0);
         this.generateStars();
@@ -8257,6 +8350,9 @@ const NyanalyzerCatAnalyzer = {
         const canvas = this.canvas;
         const width = canvas.width;
         const height = canvas.height;
+        const colW = this._colW || this.COLUMN_WIDTH;
+        const step = this._step || (this.COLUMN_WIDTH + this.GAP);
+        const scaleY = this._scaleY || 1;
 
         // Dark space background
         const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -8282,10 +8378,11 @@ const NyanalyzerCatAnalyzer = {
             : new Array(this.bandCount).fill(0);
 
         for (let i = 0; i < this.bandCount; i++) {
-            const x = i * (this.COLUMN_WIDTH + this.GAP);
+            const x = i * step;
 
             let targetHeight = scope[i] * height * 0.7;
-            if (targetHeight < 3) targetHeight = 3;
+            const minH = 3 * scaleY;
+            if (targetHeight < minH) targetHeight = minH;
 
             this.barHeight[i] += (targetHeight - this.barHeight[i]) * 0.25;
 
@@ -8302,7 +8399,7 @@ const NyanalyzerCatAnalyzer = {
                 const segY = height - (c + 1) * segmentHeight;
                 ctx.fillStyle = rainbowColors[c];
                 ctx.globalAlpha = 0.8;
-                ctx.fillRect(x, segY, this.COLUMN_WIDTH, segmentHeight + 1);
+                ctx.fillRect(x, segY, colW, segmentHeight + Math.max(1, Math.round(1 * scaleY)));
             }
             ctx.globalAlpha = 1;
         }
