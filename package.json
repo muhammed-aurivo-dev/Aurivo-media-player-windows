@@ -112,6 +112,12 @@
       "maintainer": "Aurivo <support@aurivo.app>",
       "category": "AudioVideo",
       "executableName": "aurivo",
+      "desktop": {
+        "Name": "Aurivo Media Player",
+        "Comment": "Electron tabanlı gelişmiş medya oynatıcı",
+        "Categories": "AudioVideo;Player;",
+        "Keywords": "Music;Audio;Video;Player;Aurivo;"
+      },
       "icon": "icons/aurivo_512.png",
       "extraResources": [
         {
@@ -156,6 +162,10 @@
         {
           "from": "icons/aurivo_logo.bmp",
           "to": "resources/icons/aurivo_logo.bmp"
+        },
+        {
+          "from": "packaging/appstream/com.aurivo.mediaplayer.metainfo.xml",
+          "to": "usr/share/metainfo/com.aurivo.mediaplayer.metainfo.xml"
         }
       ]
     },
