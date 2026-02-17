@@ -67,6 +67,17 @@ if (app && app.commandLine) {
     }
     app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// Uygulama arka plandayken / küçültülmüşken (Linux/Wayland/X11) renderer zamanlayıcıları (setInterval/setTimeout)
+// ciddi şekilde yavaşlatılabilir (throttle edilir).
+// Bu durum süre çubuğu (seek/progress) güncellemelerini bozar ve zamanlayıcılara bağlı otomatik sonraki parça / çapraz geçiş
+// mantığını geciktirebilir.
+// Bu nedenle kısıtlamayı kapatıyoruz; oynatma mantığı arka planda da hızlı ve tutarlı kalsın.
+    if (process.platform === 'linux') {
+        app.commandLine.appendSwitch('disable-background-timer-throttling');
+        app.commandLine.appendSwitch('disable-renderer-backgrounding');
+        app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+    }
+
     // DÜZELTME: WebView'larda çift medya oynatıcıyı önlemek için Chromium MediaSessionService devre dışı
     const disabledFeatures = ['HardwareMediaKeyHandling', 'MediaSessionService'];
     // Windows'ta bazı ortamlarda Chromium built-in cert verifier, sistemde güvenilen
@@ -301,6 +312,49 @@ let isNativeAudioAvailable = false;
 let audioEngineModule = null;
 let nativeAudioInitAttempted = false;
 
+const AUDIO_POSITION_IPC = 'audio:position';
+const AUDIO_ENDED_IPC = 'audio:ended';
+
+let nativeAudioIpcWired = false;
+function broadcastToAllWindows(channel, payload) {
+    try {
+        for (const w of BrowserWindow.getAllWindows()) {
+            try {
+                if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
+            } catch {
+                // best-effort
+            }
+        }
+    } catch {
+        // best-effort
+    }
+}
+
+function wireNativeAudioIpcOnce() {
+    if (nativeAudioIpcWired) return;
+    if (!audioEngine || !isNativeAudioAvailable) return;
+    if (typeof audioEngine.onPositionUpdate !== 'function' || typeof audioEngine.onPlaybackEnd !== 'function') return;
+
+    nativeAudioIpcWired = true;
+
+    try {
+        audioEngine.onPositionUpdate((positionMs, durationMs) => {
+            broadcastToAllWindows(AUDIO_POSITION_IPC, {
+                positionMs: Number(positionMs) || 0,
+                durationMs: Number(durationMs) || 0,
+                isPlaying: !!audioEngine?.isPlaying?.()
+            });
+        });
+
+        audioEngine.onPlaybackEnd(() => {
+            broadcastToAllWindows(AUDIO_ENDED_IPC, { at: Date.now() });
+        });
+    } catch (e) {
+        nativeAudioIpcWired = false;
+        console.warn('[NativeAudio] IPC wire failed:', e?.message || e);
+    }
+}
+
 function initNativeAudioEngineSafe({ force = false } = {}) {
     if (nativeAudioInitAttempted && !force) return isNativeAudioAvailable;
     nativeAudioInitAttempted = true;
@@ -323,6 +377,7 @@ function initNativeAudioEngineSafe({ force = false } = {}) {
             if (process.platform === 'win32') {
                 console.log('[NativeAudio] addon:', audioEngineModule?.loadedAddonPath || '(unknown)');
             }
+            wireNativeAudioIpcOnce();
         } else {
             console.warn('⚠ Native audio başlatılamadı, HTML5 Audio kullanılacak');
             const err = audioEngineModule?.lastNativeLoadError;

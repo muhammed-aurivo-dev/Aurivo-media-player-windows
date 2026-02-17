@@ -71,6 +71,9 @@ const state = {
     // Native ses durumu
     nativePositionTimer: null,
     nativePositionGeneration: 0,
+    nativeIpcBound: false,
+    nativeIpcActive: false,
+    nativeIpcLastAt: 0,
     // MPRIS takibi
     lastMPRISPosition: -1,
     // Sekme bazlı konum hafızası
@@ -5848,100 +5851,124 @@ async function startNativeTransitionToIndex(index, ms) {
 // C++ Engine pozisyon güncelleme
 function startNativePositionUpdates() {
     stopNativePositionUpdates();
+    bindNativeAudioIpcOnce();
 
-    console.log('Position update başlatıldı');
-
+    // Prefer main-process position updates (not throttled in background). If they don't arrive,
+    // fall back to renderer polling.
     const myGen = ++state.nativePositionGeneration;
+    state.nativeIpcActive = false;
+    state.nativeIpcLastAt = 0;
 
+    const fallbackAfterMs = 900;
+    setTimeout(() => {
+        if (myGen !== state.nativePositionGeneration) return;
+        if (state.nativeIpcActive) return;
+        startNativePositionUpdatesFallbackPoll(myGen);
+    }, fallbackAfterMs);
+}
+
+function bindNativeAudioIpcOnce() {
+    if (state.nativeIpcBound) return;
+    if (!window?.aurivo?.audio?.on) return;
+
+    state.nativeIpcBound = true;
+
+    window.aurivo.audio.on('position', (payload) => {
+        try {
+            if (!useNativeAudio || state.activeMedia !== 'audio') return;
+            const positionMs = Number(payload?.positionMs) || 0;
+            const durationMs = Number(payload?.durationMs) || 0;
+            const isPlaying = typeof payload?.isPlaying === 'boolean' ? payload.isPlaying : state.isPlaying;
+            state.nativeIpcActive = true;
+            state.nativeIpcLastAt = Date.now();
+            handleNativePositionTick(positionMs, durationMs, isPlaying);
+        } catch (e) {
+            console.warn('[NATIVE][IPC] position handler error:', e?.message || e);
+        }
+    });
+
+    window.aurivo.audio.on('ended', () => {
+        try {
+            if (!useNativeAudio || state.activeMedia !== 'audio') return;
+            handleNativePlaybackEnd();
+        } catch (e) {
+            console.warn('[NATIVE][IPC] ended handler error:', e?.message || e);
+        }
+    });
+}
+
+function startNativePositionUpdatesFallbackPoll(myGen) {
+    console.log('[NATIVE] Falling back to renderer polling for position updates');
     state.nativePositionTimer = setInterval(async () => {
         if (myGen !== state.nativePositionGeneration) return;
-        if (!useNativeAudio) {
-            console.log('Native audio kullanılmıyor');
-            return;
-        }
-        if (!state.isPlaying) {
-            return;
-        }
+        if (!useNativeAudio || state.activeMedia !== 'audio') return;
 
         try {
-            // IPC çağrıları async
-            const positionMs = await window.aurivo.audio.getPosition(); // milisaniye
-            const durationSec = await window.aurivo.audio.getDuration(); // saniye
+            const positionMs = await window.aurivo.audio.getPosition(); // ms
+            const durationSec = await window.aurivo.audio.getDuration(); // seconds
             const isPlaying = await window.aurivo.audio.isPlaying();
-
-            // Bu tick sırasında stop/restart olduysa hiçbir şey yapma
             if (myGen !== state.nativePositionGeneration) return;
-
-            const positionSec = positionMs / 1000;
-
-            // UI güncelle
-            if (elements.currentTime) {
-                elements.currentTime.textContent = formatTime(positionSec);
-            }
-            if (elements.durationTime) {
-                elements.durationTime.textContent = formatTime(durationSec);
-            }
-
-            if (durationSec > 0 && elements.seekSlider) {
-                const progress = (positionSec / durationSec) * 1000;
-                elements.seekSlider.value = progress;
-                updateRainbowSlider(elements.seekSlider, progress / 10);
-            }
-
-            // MPRIS position'ı güncelle (her tam saniyede bir)
-            const currentSecInt = Math.floor(positionSec);
-            if (currentSecInt !== state.lastMPRISPosition && currentSecInt % 2 === 0) {
-                state.lastMPRISPosition = currentSecInt;
-                updateMPRISMetadata();
-            }
-
-            // Şarkı bitti mi kontrol et
-            const durationMs = durationSec * 1000;
-
-            // Native crossfade için cache
-            state.nativePositionMs = positionMs;
-            state.nativeDurationSec = durationSec;
-
-            // Native TrackAboutToEnd logic (Clementine-inspired)
-            const crossfadeMs = state.settings?.playback?.crossfadeMs || 2000;
-            const fudgeMs = 100; // timing tolerance
-            const gap = crossfadeMs + (state.settings?.playback?.crossfadeAutoEnabled ? 0 : 1000);
-            const remaining = durationMs - positionMs;
-            const minimumPlayTimeMs = 3000; // 3 saniye minimum oynatma
-
-            // TrackAboutToEnd early warning
-            if (durationMs > 0 && !state.trackAboutToEndTriggered && remaining > 0) {
-                if (remaining < gap + fudgeMs && positionMs >= minimumPlayTimeMs) {
-                    state.trackAboutToEndTriggered = true;
-                    console.log('[NATIVE] Track about to end, remaining:', remaining + 'ms');
-                }
-            }
-
-            // Auto crossfade trigger
-            if (state.settings?.playback?.crossfadeAutoEnabled && !state.autoCrossfadeTriggered && !state.crossfadeInProgress) {
-                if (state.trackAboutToEndTriggered && remaining > 0 && remaining <= crossfadeMs) {
-                    const nextIdx = computeNextIndex();
-                    if (nextIdx >= 0) {
-                        state.autoCrossfadeTriggered = true;
-                        console.log('[NATIVE] Auto crossfade triggered, remaining:', remaining + 'ms');
-                        startNativeTransitionToIndex(nextIdx, crossfadeMs).catch((e) => {
-                            console.error('[CROSSFADE] Native auto transition error:', e);
-                            playIndex(nextIdx);
-                        });
-                        return;
-                    }
-                }
-            }
-
-            // Bazı formatlarda (özellikle yüklemenin hemen ardından) duration geçici olarak 0 dönebiliyor.
-            // Bu durumda "parça bitti" algısı yanlış tetiklenip anında next/crossfade zinciri başlatabiliyor.
-            if (durationMs > 0 && !isPlaying && positionMs >= durationMs - 100) {
-                handleNativePlaybackEnd();
-            }
+            handleNativePositionTick(Number(positionMs) || 0, Number(durationSec || 0) * 1000, !!isPlaying);
         } catch (e) {
             console.error('Native position update error:', e);
         }
-    }, 100);
+    }, 150);
+}
+
+function handleNativePositionTick(positionMs, durationMs, isPlaying) {
+    const durationSec = Math.max(0, (Number(durationMs) || 0) / 1000);
+    const positionSec = Math.max(0, (Number(positionMs) || 0) / 1000);
+
+    // Cache for seek/crossfade logic
+    state.nativePositionMs = Number(positionMs) || 0;
+    state.nativeDurationSec = durationSec;
+
+    // UI update
+    if (elements.currentTime) elements.currentTime.textContent = formatTime(positionSec);
+    if (elements.durationTime) elements.durationTime.textContent = formatTime(durationSec);
+    if (durationSec > 0 && elements.seekSlider) {
+        const progress = (positionSec / durationSec) * 1000;
+        elements.seekSlider.value = progress;
+        updateRainbowSlider(elements.seekSlider, progress / 10);
+    }
+
+    // MPRIS position update (every 2s)
+    const currentSecInt = Math.floor(positionSec);
+    if (currentSecInt !== state.lastMPRISPosition && currentSecInt % 2 === 0) {
+        state.lastMPRISPosition = currentSecInt;
+        updateMPRISMetadata();
+    }
+
+    // Auto-next/crossfade logic: keep existing behavior but without relying on background timers.
+    const crossfadeMs = state.settings?.playback?.crossfadeMs || 2000;
+    const fudgeMs = 100;
+    const gap = crossfadeMs + (state.settings?.playback?.crossfadeAutoEnabled ? 0 : 1000);
+    const remaining = durationMs - positionMs;
+    const minimumPlayTimeMs = 3000;
+
+    if (durationMs > 0 && !state.trackAboutToEndTriggered && remaining > 0) {
+        if (remaining < gap + fudgeMs && positionMs >= minimumPlayTimeMs) {
+            state.trackAboutToEndTriggered = true;
+        }
+    }
+
+    if (state.settings?.playback?.crossfadeAutoEnabled && !state.autoCrossfadeTriggered && !state.crossfadeInProgress) {
+        if (state.trackAboutToEndTriggered && remaining > 0 && remaining <= crossfadeMs) {
+            const nextIdx = computeNextIndex();
+            if (nextIdx >= 0) {
+                state.autoCrossfadeTriggered = true;
+                startNativeTransitionToIndex(nextIdx, crossfadeMs).catch((e) => {
+                    console.error('[CROSSFADE] Native auto transition error:', e);
+                    playIndex(nextIdx);
+                });
+                return;
+            }
+        }
+    }
+
+    if (durationMs > 0 && !isPlaying && positionMs >= durationMs - 120) {
+        handleNativePlaybackEnd();
+    }
 }
 
 function stopNativePositionUpdates() {
@@ -10630,5 +10657,4 @@ document.addEventListener('DOMContentLoaded', () => {
         AGCController.init();
     }, 100);
 });
-
 

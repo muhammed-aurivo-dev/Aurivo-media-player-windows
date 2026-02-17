@@ -185,7 +185,13 @@ class AurivoAudioEngine {
             if (typeof nativeAudio.crossfadeTo !== 'function') {
                 return false;
             }
-            return nativeAudio.crossfadeTo(filePath, durationMs);
+            const res = nativeAudio.crossfadeTo(filePath, durationMs);
+            const ok = (res === true) || (res && res.success);
+            if (ok) {
+                // Ensure position updates keep flowing after crossfadeTo (native side may already be playing).
+                this.startPositionUpdates();
+            }
+            return res;
         } catch (error) {
             console.error('Crossfade hatası:', error);
             return false;
