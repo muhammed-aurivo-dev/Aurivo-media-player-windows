@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04
+    # Build on an older glibc for wider distro compatibility (AppImage is the primary target).
+    runs-on: ubuntu-20.04
 
     env:
       # Keep these in sync with package.json build.electronVersion
@@ -68,7 +69,7 @@ jobs:
             rpm \
             zlib1g-dev
 
-      # Ubuntu 22.04 ships an older libprojectM (v2.x/3.x) which doesn't provide the v4 C-API
+      # Ubuntu 20.04/22.04 ship an older libprojectM (v2.x/3.x) which doesn't provide the v4 C-API
       # used by our visualizer (projectm_create/projectm_destroy/...).
       # Build and install libprojectM v4 from source to get the required headers + libraries.
       - name: Build + install libprojectM v4
