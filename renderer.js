@@ -3725,7 +3725,15 @@ function handleSidebarClick(btn) {
                         window.aurivo.dawlod.setLocale(lang);
                     }
                 } catch { }
-                window.aurivo.dawlod.openWindow();
+                // Web sekmesindeyken mevcut URL'yi downloader'a otomatik taşı.
+                const currentUrl = getWebViewUrlSafe();
+                const u = parseHttpUrl(currentUrl);
+                const urlToSend = u ? u.toString() : null;
+                if (urlToSend && window.aurivo?.clipboard?.setText) {
+                    // Dawlod host clipboard'tan da okuyabildiği için best-effort.
+                    try { window.aurivo.clipboard.setText(urlToSend); } catch { }
+                }
+                window.aurivo.dawlod.openWindow(urlToSend ? { url: urlToSend } : undefined);
             } else {
                 safeNotify('İndirme modülü bulunamadı (Aurivo-Dawlod).', 'error');
             }

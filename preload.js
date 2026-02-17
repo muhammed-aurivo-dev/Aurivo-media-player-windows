@@ -620,7 +620,7 @@ const aurivoAPI = {
 
     // Aurivo-Dawlod downloader window
     dawlod: {
-        openWindow: () => ipcRenderer.invoke('dawlod:openWindow'),
+        openWindow: (options) => ipcRenderer.invoke('dawlod:openWindow', options),
         setLocale: (lang) => ipcRenderer.invoke('dawlod:setLocale', lang)
     },
 

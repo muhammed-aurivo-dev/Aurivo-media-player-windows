@@ -163,12 +163,15 @@ function registerDawlodIpc({ ipcMain, app, dialog, shell, BrowserWindow }) {
     };
 
     // window management (called from Aurivo proper via preload)
-    ipcMain.handle('dawlod:openWindow', async () => {
+    ipcMain.handle('dawlod:openWindow', async (_event, options) => {
         const win = openDawlodWindow({ app, BrowserWindow });
         // Always try to paste the current clipboard URL when user explicitly opens Dawlod.
         try {
-            const url = readClipboardUrl();
-            if (url && win && !win.isDestroyed()) {
+            const preferred = options && typeof options === 'object' ? options.url : null;
+            const preferredUrl = preferred ? parseHttpUrl(preferred)?.toString() : null;
+            const url = preferredUrl || readClipboardUrl();
+            if (!url) return true;
+            if (win && !win.isDestroyed()) {
                 pendingLinkToPaste = url;
                 if (dawlodReadyForLinks) {
                     try { win.webContents.send('link', url); lastAutoPasted = url; } catch { /* ignore */ }
