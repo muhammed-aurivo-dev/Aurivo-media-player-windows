@@ -54,7 +54,37 @@ jobs:
             mingw-w64-x86_64-SDL2_image
             mingw-w64-x86_64-glew
             mingw-w64-x86_64-glm
-            mingw-w64-x86_64-projectm
+            mingw-w64-x86_64-freetype
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libjpeg-turbo
+
+      - name: Install projectM (MSYS2) or build from source
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # Package name differs across MSYS2 snapshots. Try common names first.
+          if pacman -S --noconfirm --needed mingw-w64-x86_64-libprojectm; then
+            echo "Installed mingw-w64-x86_64-libprojectm"
+            exit 0
+          fi
+          if pacman -S --noconfirm --needed mingw-w64-x86_64-projectm; then
+            echo "Installed mingw-w64-x86_64-projectm"
+            exit 0
+          fi
+
+          echo "projectM package not found in MSYS2 repos; building libprojectM v4 from source..."
+          PROJECTM_VER="4.1.6"
+          curl -fsSL -o /tmp/libprojectM-${PROJECTM_VER}.tar.gz \
+            "https://sourceforge.net/projects/projectm.mirror/files/v${PROJECTM_VER}/libprojectM-${PROJECTM_VER}.tar.gz/download"
+          tar -xzf /tmp/libprojectM-${PROJECTM_VER}.tar.gz -C /tmp
+
+          cmake -S "/tmp/libprojectM-${PROJECTM_VER}" -B /tmp/build-projectm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX=/mingw64
+          cmake --build /tmp/build-projectm
+          cmake --install /tmp/build-projectm
 
       - name: Install JS dependencies
         run: npm ci
