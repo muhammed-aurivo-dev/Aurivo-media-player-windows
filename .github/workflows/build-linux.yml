@@ -48,16 +48,21 @@ jobs:
             cmake \
             curl \
             ffmpeg \
+            libfreetype6-dev \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             libfuse2 \
+            libglm-dev \
             libglew-dev \
+            libjpeg-dev \
+            libpng-dev \
             libsdl2-dev \
             libsdl2-image-dev \
             ninja-build \
             pkg-config \
             python3 \
-            rpm
+            rpm \
+            zlib1g-dev
 
       # Ubuntu 22.04 ships an older libprojectM (v2.x/3.x) which doesn't provide the v4 C-API
       # used by our visualizer (projectm_create/projectm_destroy/...).
