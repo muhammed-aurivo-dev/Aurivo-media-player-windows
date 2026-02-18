@@ -92,6 +92,7 @@ function isLikelySystemDll(name) {
     'gdi32full.dll',
     'imm32.dll',
     'kernel32.dll',
+    'opengl32.dll',
     'msvcrt.dll',
     'ntdll.dll',
     'ole32.dll',

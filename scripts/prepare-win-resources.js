@@ -14,6 +14,85 @@ function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
 
+function normalizeMsysRootFromDllDir(dllDir) {
+  const d = String(dllDir || '').trim();
+  if (!d) return '';
+  try {
+    const norm = d.replace(/\//g, '\\');
+    const parts = norm.split('\\').filter(Boolean);
+    // ...\msys64\mingw64\bin -> ...\msys64
+    if (parts.length >= 3) {
+      const last = parts[parts.length - 1].toLowerCase();
+      const parent = parts[parts.length - 2].toLowerCase();
+      if (last === 'bin' && ['mingw64', 'ucrt64', 'clang64', 'usr'].includes(parent)) {
+        return parts.slice(0, -2).join('\\');
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+function pickBestDllDir(dllDir) {
+  const original = String(dllDir || '').trim();
+  if (!original) return '';
+
+  const msysRoot = normalizeMsysRootFromDllDir(original);
+  const candidates = [];
+  candidates.push(original);
+  if (msysRoot) {
+    candidates.push(path.join(msysRoot, 'mingw64', 'bin'));
+    candidates.push(path.join(msysRoot, 'ucrt64', 'bin'));
+    candidates.push(path.join(msysRoot, 'clang64', 'bin'));
+    candidates.push(path.join(msysRoot, 'usr', 'bin'));
+  }
+
+  const uniq = [];
+  const seen = new Set();
+  for (const c of candidates) {
+    const key = String(c || '').toLowerCase();
+    if (!c || seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(c);
+  }
+
+  const probes = [
+    'SDL2.dll',
+    'SDL2_image.dll',
+    'glew32.dll',
+    'libstdc++-6.dll',
+    'libgcc_s_seh-1.dll',
+    'libwinpthread-1.dll',
+    'libprojectM-4-4.dll'
+  ];
+
+  let best = original;
+  let bestScore = -1;
+
+  for (const c of uniq) {
+    try {
+      if (!fs.existsSync(c)) continue;
+    } catch {
+      continue;
+    }
+    let score = 0;
+    for (const f of probes) {
+      try {
+        if (fs.existsSync(path.join(c, f))) score++;
+      } catch {
+        // ignore
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+
+  return best;
+}
+
 function copyIfExists(from, to) {
   if (!fs.existsSync(from)) return false;
   ensureDir(path.dirname(to));
@@ -38,7 +117,8 @@ function resolveVisualizerDllDir() {
 
 function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   if (!dllDir) return { copied: 0, skipped: 0 };
-  if (!fs.existsSync(dllDir)) {
+  const pickedDllDir = pickBestDllDir(dllDir);
+  if (!pickedDllDir || !fs.existsSync(pickedDllDir)) {
     console.warn('[prepare-win-resources] AURIVO_VISUALIZER_DLL_DIR bulunamadı:', dllDir);
     return { copied: 0, skipped: 0 };
   }
@@ -47,12 +127,13 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
   const findObjdump = () => {
     const candidates = [
-      path.join(dllDir, 'objdump.exe'),
-      path.join(dllDir, 'objdump'),
-      path.join(dllDir, 'x86_64-w64-mingw32-objdump.exe'),
-      path.join(dllDir, 'x86_64-w64-mingw32-objdump'),
-      path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump.exe'),
-      path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump'),
+      // Prefer MinGW objdump (doesn't depend on MSYS2 runtime).
+      path.join(pickedDllDir, 'x86_64-w64-mingw32-objdump.exe'),
+      path.join(pickedDllDir, 'x86_64-w64-mingw32-objdump'),
+      path.join(pickedDllDir, 'objdump.exe'),
+      path.join(pickedDllDir, 'objdump'),
+      path.join(path.dirname(pickedDllDir), 'usr', 'bin', 'objdump.exe'),
+      path.join(path.dirname(pickedDllDir), 'usr', 'bin', 'objdump'),
       // Fallback: resolve from PATH (useful on Linux cross-compile setups).
       'x86_64-w64-mingw32-objdump',
       'objdump'
@@ -105,7 +186,7 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   const toLower = (s) => String(s || '').toLowerCase();
   const isDll = (name) => toLower(name).endsWith('.dll');
 
-  const fileInDllDir = (name) => path.join(dllDir, name);
+  const fileInDllDir = (name) => path.join(pickedDllDir, name);
 
   const copyOne = (name) => {
     if (!name) return false;
@@ -191,6 +272,7 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
   console.log('[prepare-win-resources] Visualizer DLL dependency bundle:', {
     from: dllDir,
+    using: pickedDllDir,
     to: nativeDistDir,
     objdump: objdumpPath || '(none)',
     copied,
@@ -244,6 +326,27 @@ function main() {
 
     if (dllDir) {
       copyVisualizerDllsFromDir(dllDir, nativeDistDir);
+
+      // In CI/release builds: fail fast if core DLLs still aren't present after bundling.
+      if (requireDlls && hasVisualizerExe) {
+        const mustExist = [
+          'SDL2.dll',
+          'SDL2_image.dll',
+          'glew32.dll',
+          'libgcc_s_seh-1.dll',
+          'libstdc++-6.dll',
+          'libwinpthread-1.dll',
+          'libprojectM-4-4.dll'
+        ];
+        const missing = mustExist.filter((n) => !safeExists(path.join(nativeDistDir, n)));
+        if (missing.length) {
+          throw new Error(
+            'Visualizer runtime DLL bundle eksik (native-dist içinde olmalı):\n- ' + missing.join('\n- ') +
+              `\n\nDLL source dir: ${dllDir}\n` +
+              'İpucu: MSYS2 MinGW64 paketleri yüklü olmalı (SDL2/glew/projectM/toolchain).'
+          );
+        }
+      }
     } else if (hasVisualizerExe) {
       const msg =
         '[prepare-win-resources] ⚠ Visualizer exe var ama AURIVO_VISUALIZER_DLL_DIR bulunamadı; DLL paketleme atlandı. ' +
