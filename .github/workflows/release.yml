@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-20.04
+    # Use a readily available runner, but build inside an Ubuntu 20.04 container
+    # to keep glibc compatibility for native binaries while avoiding runner queue delays.
+    runs-on: ubuntu-22.04
+    container: ubuntu:20.04
 
     env:
       ELECTRON_VERSION: "28.3.3"
@@ -41,13 +44,14 @@ jobs:
       - name: Install system dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             binutils \
             build-essential \
             cmake \
             curl \
             ffmpeg \
+            git \
             libfreetype6-dev \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
@@ -63,6 +67,7 @@ jobs:
             python3 \
             rpm \
             zlib1g-dev
+          rm -rf /var/lib/apt/lists/*
 
       - name: Build + install libprojectM v4
         run: |
@@ -76,8 +81,8 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_TESTING=OFF
           cmake --build /tmp/build-projectm
-          sudo cmake --install /tmp/build-projectm
-          sudo ldconfig
+          cmake --install /tmp/build-projectm
+          ldconfig
           echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Install JS dependencies

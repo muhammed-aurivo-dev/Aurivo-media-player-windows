@@ -8534,6 +8534,28 @@ function setupVisualizerContextMenu() {
 
     if (!canvas || !contextMenu) return;
 
+    // projectM visualizer toggle (native external window)
+    const projectmToggle = document.getElementById('projectmToggle');
+    if (projectmToggle) {
+        projectmToggle.addEventListener('click', async () => {
+            try {
+                if (window.app?.visualizer?.toggle) {
+                    const res = await window.app.visualizer.toggle();
+                    if (res && typeof res.running === 'boolean') {
+                        projectmToggle.classList.toggle('checked', res.running);
+                    }
+                } else {
+                    console.warn('Visualizer API yok (window.app.visualizer.toggle)');
+                }
+            } catch (e) {
+                console.error('[Visualizer] projectM toggle failed:', e);
+                try { safeNotify('Görselleştirici başlatılamadı.', 'error'); } catch { }
+            } finally {
+                hideContextMenu();
+            }
+        });
+    }
+
     // Sağ tık işleyicisi
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
