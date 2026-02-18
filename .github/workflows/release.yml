@@ -122,7 +122,7 @@ jobs:
           chmod +x native-dist/aurivo-projectm-visualizer
 
       - name: Build Linux packages (AppImage/deb/rpm)
-        run: npm run -s build:linux -- --publish=never
+        run: npm run -s build:linux:appimage -- --publish=never
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -130,8 +130,7 @@ jobs:
           name: linux-dist
           path: |
             dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
+            dist/*.AppImage.blockmap
             dist/*.yml
 
   build-windows:
