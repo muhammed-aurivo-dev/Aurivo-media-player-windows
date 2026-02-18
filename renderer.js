@@ -349,6 +349,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await initializeI18n();
 
+    // Apply Sound Effects changes to video playback too (WebAudio graph).
+    try {
+        if (window.aurivo?.audio?.on) {
+            window.aurivo.audio.on('sfxUpdate', (payload) => {
+                try {
+                    // Ensure graph exists when a video is active/loaded.
+                    if (elements.videoPlayer) ensureVideoSfxGraph();
+                    handleSfxUpdateForVideo(payload);
+                } catch { }
+            });
+        }
+    } catch {
+        // ignore
+    }
+
     // "Open with" / ikinci instance: disaridan acilan dosyalari mevcut instance'a ekle ve cal.
     try {
         if (window.aurivo?.app?.onOpenFiles) {
@@ -5592,6 +5607,159 @@ function addSelectedFilesToPlaylist() {
 // ============================================
 // VIDEO PLAYBACK (Playlist'siz, direkt kütüphaneden)
 // ============================================
+const VIDEO_EQ_FREQUENCIES = [
+    20, 25, 31.5, 40, 50, 63, 80, 100,
+    125, 160, 200, 250, 315, 400, 500, 630,
+    800, 1000, 1250, 1600, 2000, 2500, 3150, 4000,
+    5000, 6300, 8000, 10000, 12500, 16000, 20000, 20000
+];
+
+let videoSfxGraph = null; // { ctx, source, preamp, panner, filters[] }
+let videoSfxState = {
+    enabled: true,
+    preampDb: 0,
+    balance: 0,
+    bands: new Array(32).fill(0)
+};
+
+function dbToGain(db) {
+    const d = Number(db) || 0;
+    return Math.pow(10, d / 20);
+}
+
+function normalizeBalanceToPan(balance) {
+    const b = Number(balance);
+    if (!Number.isFinite(b)) return 0;
+    // Accept -1..1 or -100..100.
+    if (Math.abs(b) <= 1.001) return Math.max(-1, Math.min(1, b));
+    return Math.max(-1, Math.min(1, b / 100));
+}
+
+function ensureVideoSfxGraph() {
+    try {
+        if (!elements.videoPlayer) return null;
+
+        if (videoSfxGraph && videoSfxGraph.ctx) return videoSfxGraph;
+
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return null;
+
+        const ctx = new Ctx();
+        const source = ctx.createMediaElementSource(elements.videoPlayer);
+
+        const preamp = ctx.createGain();
+        preamp.gain.value = 1;
+
+        const panner = (typeof ctx.createStereoPanner === 'function') ? ctx.createStereoPanner() : null;
+        if (panner) panner.pan.value = 0;
+
+        const filters = VIDEO_EQ_FREQUENCIES.map((freq) => {
+            const f = ctx.createBiquadFilter();
+            f.type = 'peaking';
+            f.frequency.value = Number(freq) || 1000;
+            f.Q.value = 1.2;
+            f.gain.value = 0;
+            return f;
+        });
+
+        // Chain: source -> preamp -> EQ -> (panner) -> destination
+        let node = source;
+        node.connect(preamp);
+        node = preamp;
+        for (const f of filters) {
+            node.connect(f);
+            node = f;
+        }
+        if (panner) {
+            node.connect(panner);
+            panner.connect(ctx.destination);
+        } else {
+            node.connect(ctx.destination);
+        }
+
+        videoSfxGraph = { ctx, source, preamp, panner, filters };
+        applyVideoSfxState();
+        return videoSfxGraph;
+    } catch (e) {
+        console.warn('[VIDEO SFX] init error:', e?.message || e);
+        return null;
+    }
+}
+
+function applyVideoSfxState() {
+    if (!videoSfxGraph) return;
+    try {
+        const enabled = !!videoSfxState.enabled;
+        const bands = Array.isArray(videoSfxState.bands) ? videoSfxState.bands : [];
+        const preampDb = enabled ? (Number(videoSfxState.preampDb) || 0) : 0;
+
+        if (videoSfxGraph.preamp) {
+            videoSfxGraph.preamp.gain.value = dbToGain(preampDb);
+        }
+        if (Array.isArray(videoSfxGraph.filters)) {
+            for (let i = 0; i < videoSfxGraph.filters.length; i++) {
+                const node = videoSfxGraph.filters[i];
+                if (!node) continue;
+                const v = enabled ? (Number(bands[i]) || 0) : 0;
+                node.gain.value = v;
+            }
+        }
+        if (videoSfxGraph.panner) {
+            videoSfxGraph.panner.pan.value = enabled ? normalizeBalanceToPan(videoSfxState.balance) : 0;
+        }
+    } catch (e) {
+        console.warn('[VIDEO SFX] apply error:', e?.message || e);
+    }
+}
+
+function handleSfxUpdateForVideo(payload) {
+    try {
+        const p = payload || {};
+        const t = String(p.type || '');
+        if (t === 'dspEnabled') {
+            videoSfxState.enabled = !!p.enabled;
+            applyVideoSfxState();
+            return;
+        }
+        if (t === 'preamp') {
+            videoSfxState.preampDb = Number(p.gainDB) || 0;
+            applyVideoSfxState();
+            return;
+        }
+        if (t === 'balance') {
+            videoSfxState.balance = Number(p.balance) || 0;
+            applyVideoSfxState();
+            return;
+        }
+        if (t === 'eqReset') {
+            videoSfxState.bands = new Array(32).fill(0);
+            applyVideoSfxState();
+            return;
+        }
+        if (t === 'eqBand') {
+            const i = Number(p.band);
+            if (!Number.isFinite(i) || i < 0 || i >= 32) return;
+            if (!Array.isArray(videoSfxState.bands) || videoSfxState.bands.length !== 32) {
+                videoSfxState.bands = new Array(32).fill(0);
+            }
+            videoSfxState.bands[i] = Number(p.gainDB) || 0;
+            applyVideoSfxState();
+            return;
+        }
+        if (t === 'eqBands') {
+            const g = Array.isArray(p.gains) ? p.gains : [];
+            if (!g.length) return;
+            const bands = new Array(32).fill(0);
+            for (let i = 0; i < 32; i++) bands[i] = Number(g[i]) || 0;
+            videoSfxState.bands = bands;
+            applyVideoSfxState();
+            return;
+        }
+    } catch (e) {
+        console.warn('[VIDEO SFX] update handler error:', e?.message || e);
+    }
+}
+
 function playVideo(videoPath) {
     console.log('[PLAY VIDEO] Video oynatılıyor:', videoPath);
 
@@ -5628,6 +5796,10 @@ function playVideo(videoPath) {
     elements.videoPlayer.src = toLocalFileUrl(videoPath);
     elements.videoPlayer.muted = false;
 
+    // Ensure video audio can receive sound effects while playing.
+    // (WebAudio graph; controlled via main-process sfx updates.)
+    ensureVideoSfxGraph();
+
     // Video ses seviyesini ayarla (kaydedilen seviye)
     elements.videoPlayer.volume = state.volume / 100;
 
@@ -5645,6 +5817,7 @@ function playVideo(videoPath) {
         try {
             const p = elements.videoPlayer.play();
             if (p && typeof p.then === 'function') await p;
+            try { if (videoSfxGraph?.ctx?.state === 'suspended') await videoSfxGraph.ctx.resume(); } catch { }
             return true;
         } catch (err) {
             console.warn('[PLAY VIDEO] autoplay blocked/failed, muted fallback:', err?.message || err);
@@ -5656,6 +5829,7 @@ function playVideo(videoPath) {
             elements.videoPlayer.muted = true;
             const p2 = elements.videoPlayer.play();
             if (p2 && typeof p2.then === 'function') await p2;
+            try { if (videoSfxGraph?.ctx?.state === 'suspended') await videoSfxGraph.ctx.resume(); } catch { }
 
             elements.videoPlayer.addEventListener('playing', () => {
                 try {

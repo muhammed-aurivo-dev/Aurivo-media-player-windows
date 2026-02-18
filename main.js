@@ -15,6 +15,18 @@ if (!app || typeof app.requestSingleInstanceLock !== 'function') {
     process.exit(0);
 }
 
+// Windows: keep media playback stable even when the main window is occluded by another window
+// (e.g. Sound Effects window). Without this, Chromium may background occluded renderers and
+// pause video playback.
+try {
+    if (process.platform === 'win32') {
+        app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+        app.commandLine.appendSwitch('disable-renderer-backgrounding');
+    }
+} catch {
+    // ignore
+}
+
 // MPRIS (Linux Medya Oynatıcı Uzaktan Arayüz Spesifikasyonu)
 let Player = null;
 try {
@@ -761,6 +773,16 @@ function getResourcePath(relPath) {
         return path.join(process.resourcesPath, relPath);
     }
     return path.join(__dirname, relPath);
+}
+
+function broadcastSfxUpdate(payload) {
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('audio:sfxUpdate', payload);
+        }
+    } catch {
+        // best effort
+    }
 }
 
 function getAppFilePath(relPath) {
@@ -3846,6 +3868,7 @@ ipcMain.handle('audio:setEQBand', (event, band, gainDB) => {
             return { success: false, error: 'Native audio yok' };
         }
         audioEngine.setEQBand(band, gainDB);
+        broadcastSfxUpdate({ type: 'eqBand', band, gainDB });
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -3857,6 +3880,7 @@ ipcMain.handle('audio:setEQBands', (event, gains) => {
     try {
         if (!audioEngine || !isNativeAudioAvailable) return { success: false, error: 'Native audio yok' };
         audioEngine.setEQBands(gains);
+        broadcastSfxUpdate({ type: 'eqBands', gains });
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -3881,6 +3905,7 @@ ipcMain.handle('audio:setBalance', (event, balance) => {
             return { success: false, error: 'Native audio yok' };
         }
         audioEngine.setBalance(balance);
+        broadcastSfxUpdate({ type: 'balance', balance });
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -3892,6 +3917,7 @@ ipcMain.handle('audio:setDSPEnabled', (event, enabled) => {
     try {
         if (!audioEngine || !isNativeAudioAvailable) return { success: false, error: 'Native audio yok' };
         audioEngine.setDSPEnabled(enabled);
+        broadcastSfxUpdate({ type: 'dspEnabled', enabled: !!enabled });
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -4199,6 +4225,7 @@ ipcMain.handle('audio:resetEQ', () => {
     try {
         if (!audioEngine || !isNativeAudioAvailable) return false;
         audioEngine.resetEQ();
+        broadcastSfxUpdate({ type: 'eqReset' });
 
         // Reset'i kalıcı olarak da kaydet
         updateEq32SettingsInFile({
@@ -4276,6 +4303,7 @@ ipcMain.handle('audio:setPreamp', (event, gainDB) => {
     if (typeof audioEngine.setPreamp === 'function') {
         audioEngine.setPreamp(gainDB);
     }
+    broadcastSfxUpdate({ type: 'preamp', gainDB });
 });
 
 // New Effects Handlers
