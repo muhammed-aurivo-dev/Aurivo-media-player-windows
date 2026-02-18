@@ -69,6 +69,7 @@ jobs:
             ninja-build \
             pkg-config \
             python3 \
+            python3-pip \
             rpm \
             zlib1g-dev
           update-ca-certificates || true
@@ -77,6 +78,11 @@ jobs:
       - name: Build + install libprojectM v4
         run: |
           set -euo pipefail
+          # ubuntu:20.04 ships an older CMake; libprojectM requires >= 3.21.
+          python3 -m pip install --no-cache-dir -U pip "cmake>=3.21"
+          hash -r || true
+          cmake --version
+
           PROJECTM_VER="4.1.6"
           curl -fsSL -o /tmp/libprojectM-${PROJECTM_VER}.tar.gz \
             "https://sourceforge.net/projects/projectm.mirror/files/v${PROJECTM_VER}/libprojectM-${PROJECTM_VER}.tar.gz/download"
