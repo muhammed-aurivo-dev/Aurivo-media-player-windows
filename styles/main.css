@@ -5057,6 +5057,19 @@ html[dir="rtl"] .restart-actions {
     transition: width 180ms ease;
 }
 
+.update-progress-fill.is-downloading {
+    background: linear-gradient(90deg,
+            #00d9ff 0%,
+            #7cffcb 18%,
+            #ffcc00 36%,
+            #ff6b6b 54%,
+            #a78bfa 72%,
+            #00d9ff 100%);
+    background-size: 300% 100%;
+    animation: rainbowFlow 2.8s ease-in-out infinite;
+    box-shadow: 0 0 10px rgba(0, 217, 255, 0.25);
+}
+
 .update-progress-text {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.75);
@@ -5095,5 +5108,4 @@ html[dir="rtl"] .restart-actions {
     padding: 12px 16px 14px 16px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-
 

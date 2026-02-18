@@ -1541,6 +1541,9 @@ function updateUpdateUiFromState(st) {
         const show = status === 'downloading' || status === 'downloaded';
         elements.updateProgressWrap.classList.toggle('hidden', !show);
     }
+    if (elements.updateProgressFill) {
+        elements.updateProgressFill.classList.toggle('is-downloading', status === 'downloading');
+    }
     setUpdateProgress(progress);
 
     if (elements.updateActionBtn) {
