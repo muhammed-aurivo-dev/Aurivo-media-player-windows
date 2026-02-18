@@ -120,17 +120,83 @@ function copyIfExists(from, to) {
 
 function resolveVisualizerDllDir() {
   const fromEnv = String(process.env.AURIVO_VISUALIZER_DLL_DIR || '').trim();
-  if (fromEnv) return fromEnv;
+  if (fromEnv && safeExists(fromEnv)) return fromEnv;
 
-  // Local Windows dev convenience: if the env var isn't set, try the common MSYS2 install paths.
+  const roots = [];
+  try {
+    const a = String(process.env.MSYS2_LOCATION || '').trim();
+    const b = String(process.env.MSYS2_ROOT || '').trim();
+    const c = String(process.env.MSYS2_DIR || '').trim();
+    if (a) roots.push(a);
+    if (b) roots.push(b);
+    if (c) roots.push(c);
+  } catch {
+    // ignore
+  }
+
+  // GitHub Actions/Windows common paths + local dev.
   if (process.platform === 'win32') {
-    const candidates = ['C:\\\\msys64\\\\mingw64\\\\bin', 'C:\\\\msys2\\\\mingw64\\\\bin'];
-    for (const c of candidates) {
-      if (safeExists(c)) return c;
+    roots.push('C:\\\\msys64');
+    roots.push('C:\\\\msys2');
+    roots.push('D:\\\\msys64');
+    roots.push('D:\\\\msys2');
+    // Some runners install MSYS2 under the workspace/temp drive.
+    roots.push('D:\\\\a\\\\_temp\\\\msys64');
+    roots.push('D:\\\\a\\\\msys64');
+  }
+
+  const probeBins = [];
+  for (const r of roots) {
+    const base = String(r || '').trim();
+    if (!base) continue;
+    probeBins.push(path.join(base, 'mingw64', 'bin'));
+    probeBins.push(path.join(base, 'ucrt64', 'bin'));
+    probeBins.push(path.join(base, 'clang64', 'bin'));
+    probeBins.push(path.join(base, 'usr', 'bin'));
+  }
+
+  // Deduplicate and score candidates by presence of expected runtime DLLs.
+  const probes = [
+    'SDL2.dll',
+    'SDL2_image.dll',
+    'glew32.dll',
+    'libstdc++-6.dll',
+    'libgcc_s_seh-1.dll',
+    'libwinpthread-1.dll',
+    'libprojectM-4-4.dll'
+  ];
+
+  let best = '';
+  let bestScore = -1;
+  const seen = new Set();
+  for (const c of probeBins) {
+    const key = String(c || '').toLowerCase();
+    if (!c || seen.has(key)) continue;
+    seen.add(key);
+    try {
+      if (!fs.existsSync(c)) continue;
+    } catch {
+      continue;
+    }
+
+    let score = 0;
+    for (const f of probes) {
+      try {
+        if (fs.existsSync(path.join(c, f))) score++;
+      } catch {
+        // ignore
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
     }
   }
 
-  return '';
+  if (best) return best;
+
+  // If env is set but the dir doesn't exist, return it as a last resort (to keep error messages aligned).
+  return fromEnv || '';
 }
 
 function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
@@ -243,16 +309,24 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     return '';
   };
 
+  let copied = 0;
+  let skipped = 0;
+
   const copyOne = (name) => {
     if (!name) return '';
     const from = findInSearchDirs(name);
-    if (!from) return '';
+    if (!from) {
+      skipped++;
+      return '';
+    }
     const to = path.join(nativeDistDir, name);
     try {
       fs.copyFileSync(from, to);
+      copied++;
       return from;
     } catch (e) {
       console.warn('[prepare-win-resources] DLL kopyalanamadı:', name, e?.message || e);
+      skipped++;
       return '';
     }
   };
@@ -312,9 +386,6 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
   for (const f of seedFiles) enqueueDeps(f);
 
-  let copied = 0;
-  let skipped = 0;
-
   // BFS: copy deps and then scan their deps too (transitive).
   // Limit to prevent runaway in case objdump output is unexpected.
   let steps = 0;
@@ -324,10 +395,7 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     if (!name) continue;
     const fromPath = copyOne(name);
     if (fromPath) {
-      copied++;
       enqueueDeps(fromPath);
-    } else {
-      skipped++;
     }
   }
 

@@ -2252,6 +2252,35 @@ function startVisualizer() {
 
     const exeCandidates = getVisualizerExecutableCandidates();
     const exePath = getVisualizerExecutablePath();
+    const exeDir = (() => {
+        try { return path.dirname(exePath); } catch { return ''; }
+    })();
+
+    const getVisualizerRequiredDllsWin = () => ([
+        // Core runtime
+        'SDL2.dll',
+        'SDL2_image.dll',
+        'glew32.dll',
+        'libgcc_s_seh-1.dll',
+        'libstdc++-6.dll',
+        'libwinpthread-1.dll',
+        'libprojectM-4-4.dll',
+        // Common transitive deps (SDL2_image/projectM toolchain)
+        'zlib1.dll',
+        'libpng16-16.dll',
+        'libjpeg-8.dll',
+        'libtiff-6.dll',
+        'libwebp-7.dll',
+        'liblzma-5.dll',
+        'libzstd.dll',
+        'libfreetype-6.dll',
+        'libharfbuzz-0.dll',
+        'libbrotlidec.dll',
+        'libbrotlicommon.dll',
+        'libbz2-1.dll',
+        'libiconv-2.dll',
+        'libintl-8.dll'
+    ]);
 
     const presetsCandidates = [
         path.join(process.resourcesPath || '', 'visualizer-presets'),
@@ -2300,6 +2329,33 @@ function startVisualizer() {
             buttons: ['Tamam']
         }).catch(() => { /* yoksay */ });
         return false;
+    }
+
+    // Windows: fail fast with a clearer message when core runtime DLLs are missing.
+    if (process.platform === 'win32') {
+        try {
+            const required = getVisualizerRequiredDllsWin();
+            const missing = required.filter((n) => {
+                try { return !fs.existsSync(path.join(exeDir, n)); } catch { return true; }
+            });
+            if (missing.length) {
+                dialog.showMessageBox({
+                    type: 'warning',
+                    title: 'Görselleştirici başlatılamadı',
+                    message: 'projectM görselleştirici başlatılamadı (eksik DLL).',
+                    detail:
+                        `Exe: ${exePath}\n` +
+                        `CWD: ${exeDir}\n\n` +
+                        'Eksik DLL listesi (native-dist içinde olmalı):\n' +
+                        missing.map((m) => `- ${m}`).join('\n') +
+                        '\n\nÇözüm:\n- GitHub Releases üzerinden kurulu sürümü yeniden kurun.\n- Antivirüs karantinaya aldıysa dosyaları geri yükleyin.',
+                    buttons: ['Tamam']
+                }).catch(() => { /* ignore */ });
+                return false;
+            }
+        } catch {
+            // best-effort
+        }
     }
 
     // Visualizer: Windows'ta titlebar ikonu icin .ico daha guvenilir (WM_SETICON).
@@ -2366,6 +2422,23 @@ function startVisualizer() {
             try {
                 const livedMs = Date.now() - startedAt;
                 if (livedMs < 2000) {
+                    const missingDllExit = process.platform === 'win32' && Number(code) === 3221225781; // 0xC0000135
+                    let extraDetail = '';
+                    if (missingDllExit) {
+                        try {
+                            const required = getVisualizerRequiredDllsWin();
+                            const missing = required.filter((n) => {
+                                try { return !fs.existsSync(path.join(visualizerCwd || '', n)); } catch { return true; }
+                            });
+                            if (missing.length) {
+                                extraDetail =
+                                    '\n\nEksik DLL listesi:\n' +
+                                    missing.map((m) => `- ${m}`).join('\n');
+                            }
+                        } catch {
+                            // ignore
+                        }
+                    }
                     dialog.showMessageBox({
                         type: 'warning',
                         title: 'Görselleştirici başlatılamadı',
@@ -2379,7 +2452,8 @@ function startVisualizer() {
                             '- OpenGL/driver sorunu (özellikle eski GPU/driver)\n\n' +
                             'Çözüm:\n' +
                             '- Uygulamayı yeniden kurun (GitHub Releases sürümü)\n' +
-                            '- Sorun devam ederse konsol logunu paylaşın.',
+                            '- Sorun devam ederse konsol logunu paylaşın.' +
+                            extraDetail,
                         buttons: ['Tamam']
                     }).catch(() => { /* ignore */ });
                 }

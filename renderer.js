@@ -5599,6 +5599,16 @@ function playVideo(videoPath) {
     stopAudio();
     stopWeb();
 
+    if (!elements.videoPlayer) {
+        console.warn('[PLAY VIDEO] videoPlayer elementi yok; oynatma ertelendi');
+        setTimeout(() => {
+            try {
+                if (elements.videoPlayer) playVideo(videoPath);
+            } catch { }
+        }, 250);
+        return;
+    }
+
     // Videolar listesinde bu videonun indeksini bul (tek dosya açma senaryosu için fallback)
     let videoIndex = state.videoFiles.findIndex(v => v.path === videoPath);
     if (videoIndex === -1) {
@@ -5616,6 +5626,7 @@ function playVideo(videoPath) {
 
     // Video player'ı ayarla ve oynat
     elements.videoPlayer.src = toLocalFileUrl(videoPath);
+    elements.videoPlayer.muted = false;
 
     // Video ses seviyesini ayarla (kaydedilen seviye)
     elements.videoPlayer.volume = state.volume / 100;
@@ -5630,7 +5641,53 @@ function playVideo(videoPath) {
         fsVolumeLabel.textContent = state.volume + '%';
     }
 
-    elements.videoPlayer.play();
+    const attemptAutoplayWithFallback = async () => {
+        try {
+            const p = elements.videoPlayer.play();
+            if (p && typeof p.then === 'function') await p;
+            return true;
+        } catch (err) {
+            console.warn('[PLAY VIDEO] autoplay blocked/failed, muted fallback:', err?.message || err);
+        }
+
+        // Chromium autoplay policy: try muted autoplay, then unmute on first "playing".
+        try {
+            const prevMuted = elements.videoPlayer.muted;
+            elements.videoPlayer.muted = true;
+            const p2 = elements.videoPlayer.play();
+            if (p2 && typeof p2.then === 'function') await p2;
+
+            elements.videoPlayer.addEventListener('playing', () => {
+                try {
+                    elements.videoPlayer.muted = prevMuted;
+                    elements.videoPlayer.volume = state.volume / 100;
+                } catch { }
+            }, { once: true });
+            return true;
+        } catch (err2) {
+            console.warn('[PLAY VIDEO] muted autoplay also failed:', err2?.message || err2);
+        }
+
+        // Last resort: wait for first user interaction then retry play().
+        try {
+            state.pendingAutoplayVideo = videoPath;
+            const resume = async () => {
+                if (state.pendingAutoplayVideo !== videoPath) return;
+                try {
+                    state.pendingAutoplayVideo = '';
+                    const p3 = elements.videoPlayer.play();
+                    if (p3 && typeof p3.then === 'function') await p3;
+                } catch (e3) {
+                    console.warn('[PLAY VIDEO] resume play failed:', e3?.message || e3);
+                }
+            };
+            document.addEventListener('pointerdown', resume, { once: true, capture: true });
+            document.addEventListener('keydown', resume, { once: true, capture: true });
+        } catch { }
+        return false;
+    };
+
+    attemptAutoplayWithFallback();
 
     // Video kapağı (thumbnail) göster
     extractVideoCover(videoPath);
