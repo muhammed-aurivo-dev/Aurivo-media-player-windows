@@ -253,10 +253,14 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
-            release-artifacts/**/*.AppImage
-            release-artifacts/**/*.deb
-            release-artifacts/**/*.rpm
-            release-artifacts/**/*.exe
-            release-artifacts/**/*.zip
-            release-artifacts/**/*.yml
+            release-artifacts/linux-dist/*.AppImage
+            release-artifacts/linux-dist/*.AppImage.blockmap
+            release-artifacts/linux-dist/*.deb
+            release-artifacts/linux-dist/*.rpm
+            release-artifacts/linux-dist/latest-linux.yml
+            release-artifacts/windows-dist/*.exe
+            release-artifacts/windows-dist/*.exe.blockmap
+            release-artifacts/windows-dist/*.zip
+            release-artifacts/windows-dist/latest.yml
