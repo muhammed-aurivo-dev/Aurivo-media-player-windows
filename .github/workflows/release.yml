@@ -19,6 +19,9 @@ jobs:
     # to keep glibc compatibility for native binaries while avoiding runner queue delays.
     runs-on: ubuntu-22.04
     container: ubuntu:20.04
+    defaults:
+      run:
+        shell: bash
 
     env:
       ELECTRON_VERSION: "28.3.3"
