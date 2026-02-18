@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icons/aurivo_256.png" width="120" height="120" alt="Aurivo Media Player"/>
+  <img src="icons/aurivo_readme_round.png" width="120" height="120" alt="Aurivo Media Player"/>
 </p>
 
 <h1 align="center">Aurivo Media Player</h1>
