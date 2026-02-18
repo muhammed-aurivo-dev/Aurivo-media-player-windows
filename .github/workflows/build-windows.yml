@@ -60,6 +60,11 @@ jobs:
             mingw-w64-x86_64-glew
             mingw-w64-x86_64-glm
             mingw-w64-x86_64-freetype
+            mingw-w64-x86_64-harfbuzz
+            mingw-w64-x86_64-brotli
+            mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-libiconv
+            mingw-w64-x86_64-gettext
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
 
