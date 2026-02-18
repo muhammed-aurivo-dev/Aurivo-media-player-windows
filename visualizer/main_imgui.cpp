@@ -805,6 +805,23 @@ struct AppState {
 
 static AppState g;
 
+static void ensureDllSearchPathFromExeDir() {
+#ifdef _WIN32
+    wchar_t exePath[MAX_PATH] = {0};
+    const DWORD n = GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    if (!n || n >= MAX_PATH) return;
+    for (int i = (int)n - 1; i >= 0; --i) {
+        if (exePath[i] == L'\\' || exePath[i] == L'/') {
+            exePath[i] = 0;
+            break;
+        }
+    }
+    // Prefer loading DLL dependencies from the visualizer directory (native-dist)
+    // instead of relying on PATH on end-user systems.
+    SetDllDirectoryW(exePath);
+#endif
+}
+
 static void loadPresetPickerSettings() {
     fs::path cfg = getPresetPickerSettingsPath();
     std::error_code ec;
@@ -2414,6 +2431,7 @@ static Uint32 getEventWindowId(const SDL_Event& e) {
 }
 
 int main(int argc, char* argv[]) {
+    ensureDllSearchPathFromExeDir();
     srand((unsigned)time(nullptr));
 
     std::string presetsRoot = getPresetsPath(argc, argv);
@@ -2695,8 +2713,6 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
-
-
 
 
 

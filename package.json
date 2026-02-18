@@ -1,6 +1,6 @@
 {
   "name": "aurivo-media-player",
-  "version": "0.9.5",
+  "version": "1.0.0",
   "description": "Aurivo Media Player - Electron App",
   "main": "main.js",
   "scripts": {
@@ -260,8 +260,6 @@
         "ar_SA"
       ],
       "include": "installer.nsh",
-      "installerHeader": "installerHeader.bmp",
-      "installerSidebar": "installerSidebar.bmp",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

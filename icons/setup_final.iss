@@ -4,7 +4,7 @@
 #define MyAppName "Aurivo Media Player"
 #define MyAppVersion "0.9.0"
 #define MyAppPublisher "Muhammet Dali"
-#define MyAppURL "https://github.com/muhammeddali1453-beep/Aurivo-Medya-Player"
+#define MyAppURL "https://github.com/muhammed-aurivo-dev/Aurivo-Medya-Player-Linux"
 #define MyAppExeName "Aurivo.exe"
 
 [Setup]

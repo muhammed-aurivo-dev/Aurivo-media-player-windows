@@ -485,6 +485,18 @@ function initAutoUpdater() {
     try {
         autoUpdater.autoDownload = false;
     } catch { }
+    try {
+        // Ensure we always target the canonical GitHub repo for updates even if app-update.yml is missing.
+        // This avoids accidental linkage to older/other repos.
+        autoUpdater.setFeedURL({
+            provider: 'github',
+            owner: 'muhammed-aurivo-dev',
+            repo: 'Aurivo-Medya-Player-Linux',
+            private: false
+        });
+    } catch { }
+    try { autoUpdater.allowPrerelease = false; } catch { }
+    try { autoUpdater.allowDowngrade = false; } catch { }
 
     autoUpdater.on('checking-for-update', () => {
         setUpdateState({ status: 'checking', error: '' });
@@ -522,10 +534,20 @@ function initAutoUpdater() {
     });
 
     autoUpdater.on('error', (err) => {
+        const raw = String(err?.message || err || 'unknown error');
+        // electron-updater sometimes includes huge Atom/XML bodies in the message; keep UI readable.
+        const compact = raw
+            .replace(/\s+/g, ' ')
+            .slice(0, 400);
+        const hint = /Cannot parse releases feed/i.test(raw)
+            ? 'Güncelleme bilgisi okunamadı. Bu sürüm GitHub Actions artifact ise otomatik güncelleme çalışmayabilir; GitHub Releases üzerinden kurulu sürüm gerekir.'
+            : '';
         setUpdateState({
             status: 'error',
-            error: String(err?.message || err || 'unknown error')
+            error: [compact, hint].filter(Boolean).join(' | ')
         });
+        // Keep full error in logs for debugging.
+        try { console.warn('[Updater] error (full):', raw); } catch { }
     });
 
     // Silent check on startup.
@@ -2246,10 +2268,17 @@ function startVisualizer() {
         const actualExe = useStrace ? 'strace' : exePath;
         const actualArgs = useStrace ? ['-o', '/tmp/visualizer-strace.log', '-ff', exePath, '--presets', presetsPath] : ['--presets', presetsPath];
 
+        const visualizerCwd = (() => {
+            try { return path.dirname(exePath); } catch { return undefined; }
+        })();
+
+        const startedAt = Date.now();
         visualizerProc = spawn(actualExe, actualArgs, {
             env,
+            cwd: visualizerCwd,
             stdio: ['pipe', 'inherit', 'inherit'], // Hata ayıklama için stdout/stderr her zaman inherit
-            detached: true // Electron GL context çakışmalarını önlemek için ayrı process grubunda çalıştır
+            detached: process.platform !== 'win32', // Windows'ta detached+pipe bazı sistemlerde sorun çıkarabiliyor
+            windowsHide: false
         });
 
         // Electron'ın görselleştiriciyi beklememesi için unref
@@ -2261,6 +2290,31 @@ function startVisualizer() {
             console.log(`[Visualizer] kapandı (code=${code}, signal=${signal})`);
             stopVisualizerFeed();
             visualizerProc = null;
+
+            // If it exits immediately, show a friendly hint (usually missing DLL/OpenGL issues).
+            try {
+                const livedMs = Date.now() - startedAt;
+                if (livedMs < 2000) {
+                    dialog.showMessageBox({
+                        type: 'warning',
+                        title: 'Görselleştirici başlatılamadı',
+                        message: 'projectM görselleştirici başlatılamadı.',
+                        detail:
+                            `Çıkış: code=${code} signal=${signal}\n` +
+                            `Exe: ${exePath}\n` +
+                            `CWD: ${visualizerCwd || '(unset)'}\n\n` +
+                            'Olası nedenler:\n' +
+                            '- Eksik DLL bağımlılığı (native-dist içeriği eksik/bozuk)\n' +
+                            '- OpenGL/driver sorunu (özellikle eski GPU/driver)\n\n' +
+                            'Çözüm:\n' +
+                            '- Uygulamayı yeniden kurun (GitHub Releases sürümü)\n' +
+                            '- Sorun devam ederse konsol logunu paylaşın.',
+                        buttons: ['Tamam']
+                    }).catch(() => { /* ignore */ });
+                }
+            } catch {
+                // best-effort
+            }
         });
 
         visualizerProc.on('error', (err) => {

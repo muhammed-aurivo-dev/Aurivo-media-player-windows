@@ -204,7 +204,7 @@ ytDlpArgsInput.addEventListener("input", () => {
 
 getId("learnMoreLink").addEventListener("click", () => {
 	shell.openExternal(
-		"https://github.com/muhammed-aurivo-dev/Aurivo-media-player-windows"
+		"https://github.com/muhammed-aurivo-dev/Aurivo-Medya-Player-Linux"
 	);
 });
 

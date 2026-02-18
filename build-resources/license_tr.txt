@@ -1,7 +1,7 @@
-Aurivo Medya Player - Kullanım Şartları ve Lisans
+﻿Aurivo Medya Player - Kullanım Şartları ve Lisans
 
 Lisans
-Aurivo Medya Player, aksi belirtilmedikçe MIT Lisansı ile sunulan ücretsiz ve açık kaynaklı bir yazılımdır.
+﻿Aurivo Medya Player, aksi belirtilmedikçe MIT Lisansı ile sunulan ücretsiz ve açık kaynaklı bir yazılımdır.
 
 İçerik ve Telif Hakları
 Aurivo yalnızca bir medya oynatıcı/yardımcı araçtır. Oynattığınız veya indirdiğiniz içeriklerin telif haklarına uygunluğunu kontrol etmek kullanıcının sorumluluğundadır.
