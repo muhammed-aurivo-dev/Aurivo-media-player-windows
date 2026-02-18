@@ -33,6 +33,8 @@ jobs:
 
       # Copy runtime DLLs for the visualizer from MSYS2 MinGW64
       AURIVO_VISUALIZER_DLL_DIR: "C:\\msys64\\mingw64\\bin"
+      # Fail fast if we can't bundle/verify visualizer runtime DLLs.
+      AURIVO_REQUIRE_VISUALIZER_DLLS: "1"
 
     steps:
       - name: Checkout

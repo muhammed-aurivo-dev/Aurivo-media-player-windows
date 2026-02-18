@@ -416,6 +416,33 @@ function prepareQuitForUpdate() {
         // best-effort
     }
     try { stopVisualizer(); } catch { }
+
+    // Ensure "minimize to tray on close" handlers don't keep the app alive during update install.
+    // electron-updater will spawn the NSIS installer; if our app is still running in background,
+    // NSIS shows "app can't be closed" and the update can't proceed.
+    try {
+        const { BrowserWindow } = require('electron');
+        for (const w of BrowserWindow.getAllWindows()) {
+            try { w.removeAllListeners('close'); } catch { }
+            try { w.removeAllListeners('beforeunload'); } catch { }
+            try { w.close(); } catch { }
+        }
+    } catch {
+        // best-effort
+    }
+
+    // Force exit if something still prevents quitting (only in update flow).
+    try {
+        setTimeout(() => {
+            try {
+                if (!isQuittingForUpdate) return;
+                console.warn('[Updater] Force exit for update install (timeout).');
+                app.exit(0);
+            } catch { }
+        }, 3500);
+    } catch {
+        // ignore
+    }
 }
 
 // ============================================
@@ -1400,7 +1427,10 @@ function createWindow() {
             sandbox: false,  // Preload'da Node.js modülleri için gerekli
             webviewTag: true,  // WebView desteği
             plugins: true, // DRM/CDM tabanlı web oynatıcılar için gerekli olabilir
-            spellcheck: false
+            spellcheck: false,
+            // Keep video/audio playback stable even when another window (e.g. Sound Effects) is focused.
+            // Without this, Chromium may throttle background timers and media, causing video to pause/freeze.
+            backgroundThrottling: false
         },
         frame: true,
         titleBarStyle: 'default',
@@ -2362,6 +2392,25 @@ function startVisualizer() {
             console.error('[Visualizer] spawn error:', err);
             stopVisualizerFeed();
             visualizerProc = null;
+
+            try {
+                dialog.showMessageBox({
+                    type: 'error',
+                    title: 'Görselleştirici başlatılamadı',
+                    message: 'projectM görselleştirici başlatılamadı.',
+                    detail:
+                        `Hata: ${err?.message || err}\n` +
+                        `Exe: ${exePath}\n\n` +
+                        'Olası nedenler:\n' +
+                        '- Eksik DLL bağımlılığı (resources/native-dist içeriği eksik)\n' +
+                        '- Antivirüs DLL/EXE dosyalarını silmiş olabilir\n\n' +
+                        'Kontrol:\n' +
+                        '- Kurulum klasöründe `resources/native-dist` altında `libprojectM-4-4.dll`, `SDL2.dll`, `glew32.dll` var mı?',
+                    buttons: ['Tamam']
+                }).catch(() => { /* ignore */ });
+            } catch {
+                // best-effort
+            }
         });
 
         // stdin hata yönetimi (EPIPE önleme)

@@ -107,6 +107,7 @@ function isLikelySystemDll(name) {
     'winmm.dll',
     'ws2_32.dll'
   ]);
+  if (n.startsWith('api-ms-win-') || n.startsWith('ext-ms-')) return true;
   return system.has(n);
 }
 
@@ -118,20 +119,28 @@ function findObjdump(dllDir) {
     candidates.push(path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump.exe'));
   }
   candidates.push('objdump.exe');
+  candidates.push('objdump');
   candidates.push('x86_64-w64-mingw32-objdump.exe');
+  candidates.push('x86_64-w64-mingw32-objdump');
+
+  const canRun = (exe) => {
+    try {
+      if (!exe) return false;
+      cp.execFileSync(exe, ['--version'], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   for (const p of candidates) {
+    if (!p) continue;
     try {
-      if (!p) continue;
-      if (p.includes('\\') || p.includes('/')) {
-        if (fs.existsSync(p)) return p;
-      } else {
-        // Let Windows PATH resolve it.
-        return p;
-      }
+      if ((p.includes('\\') || p.includes('/')) && !fs.existsSync(p)) continue;
     } catch {
-      // ignore
+      continue;
     }
+    if (canRun(p)) return p;
   }
   return '';
 }
@@ -155,46 +164,75 @@ function listDllDeps(objdumpPath, filePath) {
   }
 }
 
-function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
-  const dllDir = String(process.env.AURIVO_VISUALIZER_DLL_DIR || '').trim();
-  if (!dllDir) {
-    console.warn('[verify-win-artifacts] ⚠ AURIVO_VISUALIZER_DLL_DIR yok; visualizer DLL kontrolü atlandı.');
-    return;
-  }
+function resolveVisualizerDllDirGuess() {
+  const fromEnv = String(process.env.AURIVO_VISUALIZER_DLL_DIR || '').trim();
+  if (fromEnv) return fromEnv;
 
-  const objdumpPath = findObjdump(dllDir);
+  if (process.platform === 'win32') {
+    const candidates = ['C:\\\\msys64\\\\mingw64\\\\bin', 'C:\\\\msys2\\\\mingw64\\\\bin'];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) return c;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return '';
+}
+
+function assertBundledDllClosure(nativeDistDir, objdumpPath, entryFile, label) {
   if (!objdumpPath) {
-    console.warn('[verify-win-artifacts] ⚠ objdump bulunamadı; visualizer DLL kontrolü atlandı.');
-    return;
+    const skip = String(process.env.AURIVO_SKIP_VISUALIZER_DLL_CHECK || '').trim() === '1';
+    const msg = `${label} DLL kontrolü için objdump bulunamadı. (AURIVO_SKIP_VISUALIZER_DLL_CHECK=1 ile atlanabilir)`;
+    if (skip) {
+      console.warn('[verify-win-artifacts] ⚠', msg);
+      return;
+    }
+    throw new Error(msg);
   }
 
-  const deps = listDllDeps(objdumpPath, visualizerExe)
-    .map((d) => path.basename(d))
-    .filter((n) => isDll(n));
+  const missing = new Set();
+  const visited = new Set();
+  const queue = [entryFile];
 
-  const missing = [];
-  for (const dep of deps) {
-    if (isLikelySystemDll(dep)) continue;
+  while (queue.length) {
+    const cur = queue.shift();
+    if (!cur) continue;
+    const key = toLower(cur);
+    if (visited.has(key)) continue;
+    visited.add(key);
 
-    const inDist = path.join(nativeDistDir, dep);
-    if (exists(inDist)) continue;
+    const deps = listDllDeps(objdumpPath, cur)
+      .map((d) => path.basename(d))
+      .filter((n) => isDll(n));
 
-    const inDllDir = path.join(dllDir, dep);
-    // If MSYS2 has it, we expect it to be bundled into native-dist.
-    if (exists(inDllDir)) {
-      missing.push(dep);
-    } else {
-      // Unknown location: don't hard-fail, but warn so we can expand bundling if needed.
-      console.warn('[verify-win-artifacts] ⚠ Visualizer bağımlılığı DLL dizininde bulunamadı:', dep);
+    for (const dep of deps) {
+      if (isLikelySystemDll(dep)) continue;
+
+      const depPath = path.join(nativeDistDir, dep);
+      if (!exists(depPath)) {
+        missing.add(dep);
+        continue;
+      }
+
+      queue.push(depPath);
     }
   }
 
-  if (missing.length) {
+  if (missing.size) {
     throw new Error(
-      `Visualizer runtime DLL'leri eksik (native-dist içinde olmalı):\n- ${missing.join('\n- ')}\n\n` +
-        `İpucu: \`npm run prepare:win:resources\` adımı bu DLL'leri MSYS2'den kopyalamalı.`
+      `${label} için eksik runtime DLL'leri (native-dist içinde olmalı):\n- ${[...missing].sort().join('\n- ')}\n\n` +
+        `İpucu: Windows ortamında \`npm run prepare:win:resources\` ve MSYS2 MinGW64 DLL dizini (` +
+        `AURIVO_VISUALIZER_DLL_DIR="C:\\\\msys64\\\\mingw64\\\\bin") ayarlı olmalı.`
     );
   }
+}
+
+function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
+  const dllDir = resolveVisualizerDllDirGuess();
+  const objdumpPath = findObjdump(dllDir) || findObjdump('');
+  assertBundledDllClosure(nativeDistDir, objdumpPath, visualizerExe, 'Visualizer');
 }
 
 function findFiles(rootDir, predicate, limit = 50) {
@@ -234,10 +272,13 @@ function main() {
   console.log('\n[verify-win-artifacts] Windows build artifact kontrolü...');
   console.log('[verify-win-artifacts] host platform:', os.platform());
   const skipVisualizer = String(process.env.AURIVO_SKIP_VISUALIZER || '').trim() === '1';
+  const visualizerOnly = String(process.env.AURIVO_VERIFY_VISUALIZER_ONLY || '').trim() === '1';
 
   // Native audio addon (must be built for Electron/Windows before packaging)
-  const nativeAddon = path.join(root, 'native', 'build', 'Release', 'aurivo_audio.node');
-  assertFileLooksLikeWindowsBinary(nativeAddon, 'Native audio addon (aurivo_audio.node)');
+  if (!visualizerOnly) {
+    const nativeAddon = path.join(root, 'native', 'build', 'Release', 'aurivo_audio.node');
+    assertFileLooksLikeWindowsBinary(nativeAddon, 'Native audio addon (aurivo_audio.node)');
+  }
 
   // Visualizer executable (must exist for Windows packaged builds)
   if (skipVisualizer) {
@@ -245,6 +286,9 @@ function main() {
   } else {
     const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer.exe');
     if (!exists(visualizerExe)) {
+      if (visualizerOnly) {
+        throw new Error(`Visualizer exe yok: ${visualizerExe}`);
+      }
       console.warn('[verify-win-artifacts] ⚠ Visualizer exe yok (opsiyonel - çalışmaya devam edilecek):', visualizerExe);
     } else {
       assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
@@ -253,30 +297,34 @@ function main() {
   }
 
   // BASS runtime DLLs copied into native build dir (DLL loader searches here)
-  const bassDllDir = path.join(root, 'native', 'build', 'Release');
-  const requiredBassDlls = [
-    'bass.dll',
-    'bass_fx.dll',
-    'bass_aac.dll',
-    'bassape.dll',
-    'bassflac.dll',
-    'basswv.dll'
-  ];
+  if (!visualizerOnly) {
+    const bassDllDir = path.join(root, 'native', 'build', 'Release');
+    const requiredBassDlls = [
+      'bass.dll',
+      'bass_fx.dll',
+      'bass_aac.dll',
+      'bassape.dll',
+      'bassflac.dll',
+      'basswv.dll'
+    ];
 
-  for (const dll of requiredBassDlls) {
-    const p = path.join(bassDllDir, dll);
-    assertFileLooksLikeWindowsBinary(p, `BASS DLL (${dll})`);
+    for (const dll of requiredBassDlls) {
+      const p = path.join(bassDllDir, dll);
+      assertFileLooksLikeWindowsBinary(p, `BASS DLL (${dll})`);
+    }
   }
 
   // ffmpeg.exe (optional, but recommended for album art extraction / download tools)
-  const ffmpegExe = path.join(root, 'bin', 'ffmpeg.exe');
-  if (!exists(ffmpegExe)) {
-    console.warn('[verify-win-artifacts] ⚠ ffmpeg.exe yok (opsiyonel):', ffmpegExe);
-  } else {
-    const m = readMagic(ffmpegExe, 2);
-    const isMZ = m.length >= 2 && m[0] === 0x4d && m[1] === 0x5a;
-    if (!isMZ) {
-      console.warn('[verify-win-artifacts] ⚠ ffmpeg.exe MZ değil (placeholder olabilir):', ffmpegExe);
+  if (!visualizerOnly) {
+    const ffmpegExe = path.join(root, 'bin', 'ffmpeg.exe');
+    if (!exists(ffmpegExe)) {
+      console.warn('[verify-win-artifacts] ⚠ ffmpeg.exe yok (opsiyonel):', ffmpegExe);
+    } else {
+      const m = readMagic(ffmpegExe, 2);
+      const isMZ = m.length >= 2 && m[0] === 0x4d && m[1] === 0x5a;
+      if (!isMZ) {
+        console.warn('[verify-win-artifacts] ⚠ ffmpeg.exe MZ değil (placeholder olabilir):', ffmpegExe);
+      }
     }
   }
 

@@ -147,6 +147,7 @@ jobs:
 
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       AURIVO_VISUALIZER_DLL_DIR: "C:\\msys64\\mingw64\\bin"
+      AURIVO_REQUIRE_VISUALIZER_DLLS: "1"
 
     steps:
       - name: Checkout

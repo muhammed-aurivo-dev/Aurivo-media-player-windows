@@ -671,11 +671,51 @@ const aurivoAPI = {
         // When user double-clicks a media file while the app is already running,
         // main process forwards file paths here.
         onOpenFiles: (callback) => {
-            ipcRenderer.on('app:open-files', (_event, filePaths) => {
-                try {
-                    callback(Array.isArray(filePaths) ? filePaths : []);
-                } catch { }
-            });
+            try {
+                if (typeof callback !== 'function') return;
+
+                // Buffer early IPC deliveries that can happen before the renderer finishes booting.
+                // This fixes the "app launches from file association but doesn't start playing" race.
+                if (!globalThis.__aurivoOpenFilesState) {
+                    globalThis.__aurivoOpenFilesState = {
+                        buffered: [],
+                        callbacks: new Set(),
+                        listenerAttached: false
+                    };
+                }
+
+                const state = globalThis.__aurivoOpenFilesState;
+                state.callbacks.add(callback);
+
+                // Attach a single IPC listener.
+                if (!state.listenerAttached) {
+                    state.listenerAttached = true;
+                    ipcRenderer.on('app:open-files', (_event, filePaths) => {
+                        const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+                        if (!list.length) return;
+
+                        const cbCount = state.callbacks.size;
+                        if (!cbCount) {
+                            state.buffered.push(...list);
+                            return;
+                        }
+
+                        for (const cb of Array.from(state.callbacks)) {
+                            try { cb(list); } catch { }
+                        }
+                    });
+                }
+
+                // Flush any buffered files to this callback (once).
+                if (Array.isArray(state.buffered) && state.buffered.length) {
+                    const list = state.buffered.splice(0, state.buffered.length);
+                    if (list.length) {
+                        try { callback(list); } catch { }
+                    }
+                }
+            } catch {
+                // ignore
+            }
         }
     },
 

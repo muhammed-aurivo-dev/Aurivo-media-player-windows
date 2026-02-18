@@ -2,6 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 
+function safeExists(p) {
+  try {
+    return !!p && fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
@@ -11,6 +19,21 @@ function copyIfExists(from, to) {
   ensureDir(path.dirname(to));
   fs.copyFileSync(from, to);
   return true;
+}
+
+function resolveVisualizerDllDir() {
+  const fromEnv = String(process.env.AURIVO_VISUALIZER_DLL_DIR || '').trim();
+  if (fromEnv) return fromEnv;
+
+  // Local Windows dev convenience: if the env var isn't set, try the common MSYS2 install paths.
+  if (process.platform === 'win32') {
+    const candidates = ['C:\\\\msys64\\\\mingw64\\\\bin', 'C:\\\\msys2\\\\mingw64\\\\bin'];
+    for (const c of candidates) {
+      if (safeExists(c)) return c;
+    }
+  }
+
+  return '';
 }
 
 function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
@@ -25,16 +48,36 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   const findObjdump = () => {
     const candidates = [
       path.join(dllDir, 'objdump.exe'),
+      path.join(dllDir, 'objdump'),
       path.join(dllDir, 'x86_64-w64-mingw32-objdump.exe'),
-      path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump.exe')
+      path.join(dllDir, 'x86_64-w64-mingw32-objdump'),
+      path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump.exe'),
+      path.join(path.dirname(dllDir), 'usr', 'bin', 'objdump'),
+      // Fallback: resolve from PATH (useful on Linux cross-compile setups).
+      'x86_64-w64-mingw32-objdump',
+      'objdump'
     ];
+
+    const canRun = (exe) => {
+      try {
+        if (!exe) return false;
+        cp.execFileSync(exe, ['--version'], { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     for (const p of candidates) {
       try {
-        if (p && fs.existsSync(p)) return p;
+        if (!p) continue;
+        if ((p.includes('\\') || p.includes('/')) && !fs.existsSync(p)) continue;
       } catch {
-        // ignore
+        continue;
       }
+      if (canRun(p)) return p;
     }
+
     return '';
   };
 
@@ -101,6 +144,9 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     'libwinpthread-1.dll',
     'libgcc_s_seh-1.dll',
     'libstdc++-6.dll',
+    // projectM runtime (common)
+    'libprojectM-4-4.dll',
+    'libprojectM-4-playlist-4.dll',
     'zlib1.dll',
     'SDL2.dll',
     'SDL2_image.dll',
@@ -188,9 +234,22 @@ function main() {
   // Optional: copy visualizer runtime DLLs (MSYS2/MinGW etc.)
   // Example: set AURIVO_VISUALIZER_DLL_DIR="C:\\msys64\\mingw64\\bin"
   try {
-    const dllDir = process.env.AURIVO_VISUALIZER_DLL_DIR || '';
+    const dllDir = resolveVisualizerDllDir();
+
+    // If the visualizer exists but we can't find MSYS2's DLL dir, this almost always means
+    // the packaged app will fail to start the visualizer on a clean Windows machine.
+    const requireDlls = String(process.env.AURIVO_REQUIRE_VISUALIZER_DLLS || '').trim() === '1';
+    const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
+    const hasVisualizerExe = safeExists(visualizerExe);
+
     if (dllDir) {
       copyVisualizerDllsFromDir(dllDir, nativeDistDir);
+    } else if (hasVisualizerExe) {
+      const msg =
+        '[prepare-win-resources] ⚠ Visualizer exe var ama AURIVO_VISUALIZER_DLL_DIR bulunamadı; DLL paketleme atlandı. ' +
+        'Windows üzerinde MSYS2 kuruluysa env ayarlayın (ör: C:\\msys64\\mingw64\\bin).';
+      if (requireDlls) throw new Error(msg);
+      console.warn(msg);
     }
   } catch (e) {
     console.warn('[prepare-win-resources] Visualizer DLL kopyalama hatası:', e?.message || e);
