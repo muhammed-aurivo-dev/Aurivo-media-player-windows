@@ -231,6 +231,34 @@ function assertBundledDllClosure(nativeDistDir, objdumpPath, entryFile, label) {
 }
 
 function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
+  const strict = String(process.env.AURIVO_REQUIRE_VISUALIZER_DLLS || '').trim() === '1';
+  if (strict) {
+    const mustExist = [
+      'SDL2.dll',
+      'SDL2_image.dll',
+      'glew32.dll',
+      'libgcc_s_seh-1.dll',
+      'libstdc++-6.dll',
+      'libwinpthread-1.dll',
+      'libprojectM-4-4.dll',
+      // Transitive deps observed missing in real installs
+      'libfreetype-6.dll',
+      'libharfbuzz-0.dll',
+      'libbrotlidec.dll',
+      'libbrotlicommon.dll',
+      'libbz2-1.dll',
+      'libiconv-2.dll',
+      'libintl-8.dll'
+    ];
+    const missing = mustExist.filter((n) => !exists(path.join(nativeDistDir, n)));
+    if (missing.length) {
+      throw new Error(
+        `Visualizer için eksik runtime DLL'leri (native-dist içinde olmalı):\n- ${missing.join('\n- ')}\n\n` +
+          `İpucu: Windows ortamında \`npm run prepare:win:resources\` ve MSYS2 MinGW64 DLL dizini (` +
+          `AURIVO_VISUALIZER_DLL_DIR="C:\\\\msys64\\\\mingw64\\\\bin") ayarlı olmalı.`
+      );
+    }
+  }
   const dllDir = resolveVisualizerDllDirGuess();
   const objdumpPath = findObjdump(dllDir) || findObjdump('');
   assertBundledDllClosure(nativeDistDir, objdumpPath, visualizerExe, 'Visualizer');

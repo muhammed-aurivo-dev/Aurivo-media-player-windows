@@ -363,6 +363,14 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     'libprojectM-4-4.dll',
     'libprojectM-4-playlist-4.dll',
     'zlib1.dll',
+    // Common transitive deps (SDL2_image / freetype / i18n)
+    'libfreetype-6.dll',
+    'libharfbuzz-0.dll',
+    'libbrotlidec.dll',
+    'libbrotlicommon.dll',
+    'libbz2-1.dll',
+    'libiconv-2.dll',
+    'libintl-8.dll',
     'SDL2.dll',
     'SDL2_image.dll',
     'glew32.dll'
@@ -466,7 +474,15 @@ function main() {
           'libgcc_s_seh-1.dll',
           'libstdc++-6.dll',
           'libwinpthread-1.dll',
-          'libprojectM-4-4.dll'
+          'libprojectM-4-4.dll',
+          // Transitive deps that commonly go missing in packaging
+          'libfreetype-6.dll',
+          'libharfbuzz-0.dll',
+          'libbrotlidec.dll',
+          'libbrotlicommon.dll',
+          'libbz2-1.dll',
+          'libiconv-2.dll',
+          'libintl-8.dll'
         ];
         const missing = mustExist.filter((n) => !safeExists(path.join(nativeDistDir, n)));
         if (missing.length) {
