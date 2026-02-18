@@ -656,6 +656,7 @@ function cacheElements() {
     elements.updateActionBtn = document.getElementById('updateActionBtn');
     elements.updateStatusText = document.getElementById('updateStatusText');
     elements.updateVersionText = document.getElementById('updateVersionText');
+    elements.updateNotesTitle = document.getElementById('updateNotesTitle');
     elements.updateNotesText = document.getElementById('updateNotesText');
     elements.updateProgressWrap = document.getElementById('updateProgressWrap');
     elements.updateProgressFill = document.getElementById('updateProgressFill');
@@ -1492,6 +1493,101 @@ function hideUpdateBanner() {
     elements.updateBanner.classList.add('hidden');
 }
 
+function getUiLangCode() {
+    try {
+        const raw = String(window?.i18n?.locale || '').trim();
+        if (!raw) return 'en';
+        return raw.split('-')[0].toLowerCase() || 'en';
+    } catch {
+        return 'en';
+    }
+}
+
+function getLocalizedText(key, lang) {
+    const L = (lang || getUiLangCode() || 'en').toLowerCase();
+    const dict = {
+        updateNotesTitle: {
+            tr: 'Yapılan iyileştirmeler',
+            en: 'Improvements',
+            ar: 'التحسينات',
+            de: 'Verbesserungen',
+            fr: 'Améliorations',
+            es: 'Mejoras',
+            it: 'Miglioramenti',
+            pt: 'Melhorias',
+            ru: 'Улучшения',
+            uk: 'Покращення',
+            fi: 'Parannukset',
+            hu: 'Fejlesztések',
+            el: 'Βελτιώσεις',
+            ja: '改善点',
+            zh: '改进',
+            vi: 'Cải tiến',
+            fa: 'بهبودها',
+            hi: 'सुधार',
+            bn: 'উন্নয়ন',
+            ne: 'सुधारहरू',
+            pl: 'Ulepszenia'
+        },
+        updateNotesFallback: {
+            tr: 'Sürüm notları eklenmedi. Detaylar için GitHub Releases sayfasına bakın.',
+            en: 'Release notes are not available. Please check the GitHub Releases page for details.',
+            ar: 'ملاحظات الإصدار غير متاحة. يرجى مراجعة صفحة GitHub Releases للتفاصيل.',
+            de: 'Keine Versionshinweise verfügbar. Bitte prüfe die GitHub-Releases-Seite für Details.',
+            fr: 'Notes de version indisponibles. Consultez la page GitHub Releases pour les détails.',
+            es: 'No hay notas de versión disponibles. Revisa la página de GitHub Releases para más detalles.',
+            it: 'Note di rilascio non disponibili. Controlla la pagina GitHub Releases per i dettagli.',
+            pt: 'Notas da versão indisponíveis. Veja a página de GitHub Releases para detalhes.',
+            ru: 'Заметки о выпуске недоступны. Подробности смотрите на странице GitHub Releases.',
+            uk: 'Нотатки до релізу недоступні. Перевірте сторінку GitHub Releases для деталей.',
+            fi: 'Julkaisutiedot eivät ole saatavilla. Katso lisätiedot GitHub Releases -sivulta.',
+            hu: 'A kiadási megjegyzések nem érhetők el. Részletekért nézd meg a GitHub Releases oldalt.',
+            el: 'Δεν υπάρχουν σημειώσεις έκδοσης. Δες τη σελίδα GitHub Releases για λεπτομέρειες.',
+            ja: 'リリースノートがありません。詳細は GitHub Releases ページをご確認ください。',
+            zh: '暂无发行说明。请在 GitHub Releases 页面查看详情。',
+            vi: 'Chưa có ghi chú phát hành. Vui lòng xem trang GitHub Releases để biết chi tiết.',
+            fa: 'یادداشت‌های انتشار در دسترس نیست. لطفاً صفحه GitHub Releases را ببینید.',
+            hi: 'रिलीज़ नोट्स उपलब्ध नहीं हैं। विवरण के लिए GitHub Releases पेज देखें।',
+            bn: 'রিলিজ নোটস নেই। বিস্তারিত জানতে GitHub Releases পেজ দেখুন।',
+            ne: 'रिलिज नोटहरू उपलब्ध छैनन्। विवरणका लागि GitHub Releases पेज हेर्नुहोस्।',
+            pl: 'Brak informacji o wydaniu. Szczegóły znajdziesz na stronie GitHub Releases.'
+        }
+    };
+    const table = dict[key] || {};
+    return table[L] || table.en || '';
+}
+
+function normalizeReleaseNotesText(raw) {
+    const s = String(raw || '').replace(/\r\n/g, '\n').trim();
+    if (!s) return '';
+    const lines = s.split('\n').map(l => l.trim()).filter(Boolean);
+    const filtered = lines.filter(l => !/^full changelog:/i.test(l));
+    const uniq = [];
+    for (const l of filtered) {
+        if (!uniq.includes(l)) uniq.push(l);
+    }
+    return uniq.join('\n').trim();
+}
+
+function pickLocalizedReleaseNotes(raw, lang) {
+    const text = String(raw || '').replace(/\r\n/g, '\n');
+    const re = /\[lang\s*=\s*([a-z]{2}(?:-[a-z]{2})?)\]([\s\S]*?)\[\/lang\]/gi;
+    const map = {};
+    let m;
+    while ((m = re.exec(text))) {
+        const k = String(m[1] || '').toLowerCase();
+        const v = String(m[2] || '').trim();
+        if (!k || !v) continue;
+        map[k] = v;
+        // Also map primary code for convenience.
+        const primary = k.split('-')[0];
+        if (primary && !map[primary]) map[primary] = v;
+    }
+    const want = String(lang || getUiLangCode() || 'en').toLowerCase();
+    const wantPrimary = want.split('-')[0];
+    return map[want] || map[wantPrimary] || map.en || map['en-us'] || '';
+}
+
 function setInfoUpdateBadgeVisible(visible) {
     if (!elements.infoUpdateBadge) return;
     elements.infoUpdateBadge.classList.toggle('hidden', !visible);
@@ -1510,7 +1606,11 @@ function updateUpdateUiFromState(st) {
     const status = String(st?.status || 'idle');
     const available = !!st?.available;
     const version = String(st?.version || '');
-    const notes = String(st?.releaseNotes || '').trim() || '-';
+    const lang = getUiLangCode();
+    const rawNotes = String(st?.releaseNotes || '').trim();
+    const localizedFromBlocks = pickLocalizedReleaseNotes(rawNotes, lang);
+    const cleaned = normalizeReleaseNotesText(localizedFromBlocks || rawNotes);
+    const notes = cleaned || getLocalizedText('updateNotesFallback', lang) || '-';
     const progress = Number(st?.progress || 0);
     const err = String(st?.error || '').trim();
 
@@ -1535,6 +1635,9 @@ function updateUpdateUiFromState(st) {
         elements.updateStatusText.textContent = map[status] || status;
     }
     if (elements.updateVersionText) elements.updateVersionText.textContent = version || '-';
+    if (elements.updateNotesTitle) {
+        elements.updateNotesTitle.textContent = getLocalizedText('updateNotesTitle', lang) || elements.updateNotesTitle.textContent;
+    }
     if (elements.updateNotesText) elements.updateNotesText.textContent = notes;
 
     if (elements.updateProgressWrap) {
