@@ -49,12 +49,28 @@
 
 ## Screenshots
 
-<details>
-<summary>Goster / Gizle</summary>
+<p>
+  <b>Uygulama arayüzü</b>
+  <br/>
+  <img src="screenshots/shot-2026-02-15-003111.png" alt="Aurivo Media Player UI" width="900"/>
+</p>
 
-![Aurivo Screenshot 1](screenshots/shot-2026-02-15-003111.png)
+<p>
+  <b>projectM görselleştirici</b>
+  <br/>
+  <img src="screenshots/shot-2026-02-15-004004.png" alt="Aurivo projectM Visualizer" width="900"/>
+</p>
+
+<p>
+  <b>İndirici (Aurivo-Dawlod)</b>
+  <br/>
+  <img src="screenshots/shot-2026-02-15-003512.png" alt="Aurivo Dawlod Downloader" width="900"/>
+</p>
+
+<details>
+<summary>Daha fazla ekran görüntüsü</summary>
+
 ![Aurivo Screenshot 2](screenshots/shot-2026-02-15-003343.png)
-![Aurivo Screenshot 3](screenshots/shot-2026-02-15-004004.png)
 ![Aurivo Screenshot 4](screenshots/shot-2026-02-15-004840.png)
 
 </details>
