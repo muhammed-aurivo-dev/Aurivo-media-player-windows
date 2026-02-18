@@ -38,6 +38,18 @@ function pickBestDllDir(dllDir) {
   const original = String(dllDir || '').trim();
   if (!original) return '';
 
+  const extraRoots = [];
+  try {
+    const a = String(process.env.MSYS2_LOCATION || '').trim();
+    const b = String(process.env.MSYS2_ROOT || '').trim();
+    const c = String(process.env.MSYS2_DIR || '').trim();
+    if (a) extraRoots.push(a);
+    if (b) extraRoots.push(b);
+    if (c) extraRoots.push(c);
+  } catch {
+    // ignore
+  }
+
   const msysRoot = normalizeMsysRootFromDllDir(original);
   const candidates = [];
   candidates.push(original);
@@ -46,6 +58,12 @@ function pickBestDllDir(dllDir) {
     candidates.push(path.join(msysRoot, 'ucrt64', 'bin'));
     candidates.push(path.join(msysRoot, 'clang64', 'bin'));
     candidates.push(path.join(msysRoot, 'usr', 'bin'));
+  }
+  for (const r of extraRoots) {
+    candidates.push(path.join(r, 'mingw64', 'bin'));
+    candidates.push(path.join(r, 'ucrt64', 'bin'));
+    candidates.push(path.join(r, 'clang64', 'bin'));
+    candidates.push(path.join(r, 'usr', 'bin'));
   }
 
   const uniq = [];
@@ -118,7 +136,33 @@ function resolveVisualizerDllDir() {
 function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   if (!dllDir) return { copied: 0, skipped: 0 };
   const pickedDllDir = pickBestDllDir(dllDir);
-  if (!pickedDllDir || !fs.existsSync(pickedDllDir)) {
+
+  const msysRoot = normalizeMsysRootFromDllDir(pickedDllDir || dllDir);
+  const searchDirs = [];
+  for (const p of [
+    pickedDllDir,
+    dllDir,
+    msysRoot ? path.join(msysRoot, 'mingw64', 'bin') : '',
+    msysRoot ? path.join(msysRoot, 'ucrt64', 'bin') : '',
+    msysRoot ? path.join(msysRoot, 'clang64', 'bin') : '',
+    msysRoot ? path.join(msysRoot, 'usr', 'bin') : ''
+  ]) {
+    const s = String(p || '').trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (searchDirs.find((d) => d.toLowerCase() === key)) continue;
+    searchDirs.push(s);
+  }
+
+  const anyDirExists = searchDirs.some((d) => {
+    try {
+      return fs.existsSync(d);
+    } catch {
+      return false;
+    }
+  });
+
+  if (!pickedDllDir || !anyDirExists) {
     console.warn('[prepare-win-resources] AURIVO_VISUALIZER_DLL_DIR bulunamadı:', dllDir);
     return { copied: 0, skipped: 0 };
   }
@@ -126,18 +170,19 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   ensureDir(nativeDistDir);
 
   const findObjdump = () => {
-    const candidates = [
-      // Prefer MinGW objdump (doesn't depend on MSYS2 runtime).
-      path.join(pickedDllDir, 'x86_64-w64-mingw32-objdump.exe'),
-      path.join(pickedDllDir, 'x86_64-w64-mingw32-objdump'),
-      path.join(pickedDllDir, 'objdump.exe'),
-      path.join(pickedDllDir, 'objdump'),
-      path.join(path.dirname(pickedDllDir), 'usr', 'bin', 'objdump.exe'),
-      path.join(path.dirname(pickedDllDir), 'usr', 'bin', 'objdump'),
-      // Fallback: resolve from PATH (useful on Linux cross-compile setups).
-      'x86_64-w64-mingw32-objdump',
-      'objdump'
-    ];
+    const candidates = [];
+
+    // Prefer MinGW objdump (doesn't depend on MSYS2 runtime).
+    for (const d of searchDirs) {
+      candidates.push(path.join(d, 'x86_64-w64-mingw32-objdump.exe'));
+      candidates.push(path.join(d, 'x86_64-w64-mingw32-objdump'));
+      candidates.push(path.join(d, 'objdump.exe'));
+      candidates.push(path.join(d, 'objdump'));
+    }
+
+    // Fallback: resolve from PATH (useful on Linux cross-compile setups).
+    candidates.push('x86_64-w64-mingw32-objdump');
+    candidates.push('objdump');
 
     const canRun = (exe) => {
       try {
@@ -186,19 +231,29 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   const toLower = (s) => String(s || '').toLowerCase();
   const isDll = (name) => toLower(name).endsWith('.dll');
 
-  const fileInDllDir = (name) => path.join(pickedDllDir, name);
+  const findInSearchDirs = (name) => {
+    for (const d of searchDirs) {
+      const p = path.join(d, name);
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch {
+        // ignore
+      }
+    }
+    return '';
+  };
 
   const copyOne = (name) => {
-    if (!name) return false;
-    const from = fileInDllDir(name);
-    if (!fs.existsSync(from)) return false;
+    if (!name) return '';
+    const from = findInSearchDirs(name);
+    if (!from) return '';
     const to = path.join(nativeDistDir, name);
     try {
       fs.copyFileSync(from, to);
-      return true;
+      return from;
     } catch (e) {
       console.warn('[prepare-win-resources] DLL kopyalanamadı:', name, e?.message || e);
-      return false;
+      return '';
     }
   };
 
@@ -209,11 +264,16 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
   // Also seed with projectM DLLs if they exist in the MSYS2 dir.
   try {
-    for (const entry of fs.readdirSync(dllDir, { withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      const lower = toLower(entry.name);
-      if (lower.includes('projectm') && isDll(entry.name)) {
-        seedFiles.push(fileInDllDir(entry.name));
+    const probeDir = searchDirs.find((d) => {
+      try { return fs.existsSync(d); } catch { return false; }
+    });
+    if (probeDir) {
+      for (const entry of fs.readdirSync(probeDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const lower = toLower(entry.name);
+        if (lower.includes('projectm') && isDll(entry.name)) {
+          seedFiles.push(path.join(probeDir, entry.name));
+        }
       }
     }
   } catch {
@@ -262,9 +322,10 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     steps++;
     const name = queue.shift();
     if (!name) continue;
-    if (copyOne(name)) {
+    const fromPath = copyOne(name);
+    if (fromPath) {
       copied++;
-      enqueueDeps(fileInDllDir(name));
+      enqueueDeps(fromPath);
     } else {
       skipped++;
     }
@@ -273,6 +334,7 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   console.log('[prepare-win-resources] Visualizer DLL dependency bundle:', {
     from: dllDir,
     using: pickedDllDir,
+    searched: searchDirs,
     to: nativeDistDir,
     objdump: objdumpPath || '(none)',
     copied,
