@@ -44,7 +44,7 @@ find_package(Threads REQUIRED)
 
 # Use system libprojectm instead of bundled Clementine version
 # Ubuntu/Debian typically ship `libprojectM` pkg-config; some distros ship `projectM-4`.
-# Try a few common pkg-config names for both core + playlist.
+# Try a few common pkg-config names for the core library.
 pkg_check_modules(PROJECTM projectM-4)
 if(NOT PROJECTM_FOUND)
     pkg_check_modules(PROJECTM libprojectM)
@@ -53,6 +53,7 @@ if(NOT PROJECTM_FOUND)
     pkg_check_modules(PROJECTM projectM)
 endif()
 
+# Playlist library is optional; the visualizer doesn't require it.
 pkg_check_modules(PROJECTM_PLAYLIST projectM-4-playlist)
 if(NOT PROJECTM_PLAYLIST_FOUND)
     pkg_check_modules(PROJECTM_PLAYLIST libprojectM-playlist)
@@ -60,16 +61,39 @@ endif()
 if(NOT PROJECTM_PLAYLIST_FOUND)
     pkg_check_modules(PROJECTM_PLAYLIST projectM-playlist)
 endif()
-include_directories(${PROJECTM_INCLUDE_DIRS} ${PROJECTM_PLAYLIST_INCLUDE_DIRS})
-link_directories(${PROJECTM_LIBRARY_DIRS} ${PROJECTM_PLAYLIST_LIBRARY_DIRS})
+include_directories(${PROJECTM_INCLUDE_DIRS})
+link_directories(${PROJECTM_LIBRARY_DIRS})
+if(PROJECTM_PLAYLIST_FOUND)
+    include_directories(${PROJECTM_PLAYLIST_INCLUDE_DIRS})
+    link_directories(${PROJECTM_PLAYLIST_LIBRARY_DIRS})
+endif()
+
+# Some distributions ship broken pkg-config .pc files for projectM that emit "-l:projectM-4"
+# instead of "-lprojectM-4" or "-l:libprojectM-4.so". CMake will pass this through verbatim and
+# the linker won't find the library. Strip an optional leading ":" from library entries.
+function(aurivo_strip_colon_prefix out_var in_var)
+    set(out "")
+    foreach(item IN LISTS ${in_var})
+        string(REGEX REPLACE "^:" "" item "${item}")
+        list(APPEND out "${item}")
+    endforeach()
+    set(${out_var} "${out}" PARENT_SCOPE)
+endfunction()
+
+aurivo_strip_colon_prefix(PROJECTM_LIBRARIES_STRIPPED PROJECTM_LIBRARIES)
+set(PROJECTM_LIBRARIES "${PROJECTM_LIBRARIES_STRIPPED}")
+if(PROJECTM_PLAYLIST_FOUND)
+    aurivo_strip_colon_prefix(PROJECTM_PLAYLIST_LIBRARIES_STRIPPED PROJECTM_PLAYLIST_LIBRARIES)
+    set(PROJECTM_PLAYLIST_LIBRARIES "${PROJECTM_PLAYLIST_LIBRARIES_STRIPPED}")
+endif()
 
 # Windows fallback when pkg-config doesn't provide projectM
-if (WIN32 AND (NOT PROJECTM_FOUND OR NOT PROJECTM_PLAYLIST_FOUND))
+if (WIN32 AND (NOT PROJECTM_FOUND))
     message(STATUS "projectM pkg-config not found; using MSYS2 fallback paths")
     set(PROJECTM_INCLUDE_DIRS "C:/msys64/mingw64/include")
     set(PROJECTM_LIBRARY_DIRS "C:/msys64/mingw64/lib")
     set(PROJECTM_LIBRARIES "projectM-4")
-    set(PROJECTM_PLAYLIST_LIBRARIES "projectM-4-playlist")
+    set(PROJECTM_PLAYLIST_LIBRARIES "")
 endif()
 
 if ((NOT WIN32) AND (NOT PROJECTM_FOUND))
@@ -141,9 +165,20 @@ target_link_libraries(aurivo-projectm-visualizer
     ${GLEW_LIBRARIES}
     imgui
     ${PROJECTM_LIBRARIES}
-    ${PROJECTM_PLAYLIST_LIBRARIES}
     Threads::Threads
 )
+
+if(PROJECTM_PLAYLIST_FOUND)
+    target_link_libraries(aurivo-projectm-visualizer ${PROJECTM_PLAYLIST_LIBRARIES})
+endif()
+
+# Bundle-friendly runtime path: look for shared libraries next to the executable.
+if(UNIX AND NOT APPLE)
+    set_target_properties(aurivo-projectm-visualizer PROPERTIES
+        BUILD_RPATH "$ORIGIN"
+        INSTALL_RPATH "$ORIGIN"
+    )
+endif()
 
 if(SDL2_IMAGE_FOUND)
     target_link_libraries(aurivo-projectm-visualizer ${SDL2_IMAGE_LIBRARIES})

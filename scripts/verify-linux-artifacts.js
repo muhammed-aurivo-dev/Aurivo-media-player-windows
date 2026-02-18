@@ -58,6 +58,12 @@ function main() {
   const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer');
   assertFileLooksLikeElf(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer)');
 
+  // libprojectM v4 runtime (bundle next to visualizer for distro compatibility)
+  const projectmCore = path.join(root, 'native-dist', 'libprojectM-4.so.4');
+  const projectmPlaylist = path.join(root, 'native-dist', 'libprojectM-4-playlist.so.4');
+  assertFileLooksLikeElf(projectmCore, 'projectM runtime (libprojectM-4.so.4)');
+  assertFileLooksLikeElf(projectmPlaylist, 'projectM runtime (libprojectM-4-playlist.so.4)');
+
   // BASS runtime shared objects copied into native build dir
   const bassSoDir = path.join(root, 'native', 'build', 'Release');
   const requiredBassSos = [
@@ -92,7 +98,9 @@ try {
   console.error('- `npm run rebuild-native` (aurivo_audio.node)');
   console.error('- Visualizer: `cmake -S visualizer -B build-visualizer && cmake --build build-visualizer`');
   console.error('- Sonra `cp build-visualizer/aurivo-projectm-visualizer native-dist/`');
+  console.error('- libprojectM v4 runtime (sisteme göre /usr/local/lib veya /usr/lib):');
+  console.error('  - `cp -L /usr/local/lib/libprojectM-4.so.4 native-dist/ || cp -L /usr/lib/libprojectM-4.so.4 native-dist/`');
+  console.error('  - `cp -L /usr/local/lib/libprojectM-4-playlist.so.4 native-dist/ || cp -L /usr/lib/libprojectM-4-playlist.so.4 native-dist/`');
   console.error('- Sonra `npm run build:linux`');
   process.exit(1);
 }
-

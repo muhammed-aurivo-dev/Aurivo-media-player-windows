@@ -1,6 +1,6 @@
 {
   "name": "aurivo-media-player",
-  "version": "0.9.5",
+  "version": "1.0.0",
   "description": "Aurivo Media Player - Electron App",
   "main": "main.js",
   "scripts": {
@@ -53,38 +53,23 @@
       }
     ],
     "fileAssociations": [
-      {
-        "name": "Aurivo Audio",
-        "description": "Aurivo Media Player Audio",
-        "role": "Viewer",
-        "icon": "icons/aurivo.ico",
-        "ext": [
-          "mp3",
-          "wav",
-          "flac",
-          "aac",
-          "ogg",
-          "m4a",
-          "opus",
-          "aiff",
-          "wma"
-        ]
-      },
-      {
-        "name": "Aurivo Video",
-        "description": "Aurivo Media Player Video",
-        "role": "Viewer",
-        "icon": "icons/aurivo.ico",
-        "ext": [
-          "mp4",
-          "mkv",
-          "avi",
-          "mov",
-          "wmv",
-          "webm",
-          "m4v"
-        ]
-      }
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mp3" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wav" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "flac" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "aac" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "ogg" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "m4a" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "opus" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "aiff" },
+      { "name": "Aurivo Audio", "description": "Aurivo Media Player Audio", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wma" },
+
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mp4" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mkv" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "avi" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "mov" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "wmv" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "webm" },
+      { "name": "Aurivo Video", "description": "Aurivo Media Player Video", "role": "Viewer", "icon": "icons/aurivo.ico", "ext": "m4v" }
     ],
     "asarUnpack": [
       "**/*.node",
@@ -127,6 +112,12 @@
       "maintainer": "Aurivo <support@aurivo.app>",
       "category": "AudioVideo",
       "executableName": "aurivo",
+      "desktop": {
+        "Name": "Aurivo Media Player",
+        "Comment": "Electron tabanlı gelişmiş medya oynatıcı",
+        "Categories": "AudioVideo;Player;",
+        "Keywords": "Music;Audio;Video;Player;Aurivo;"
+      },
       "icon": "icons/aurivo_512.png",
       "extraResources": [
         {
@@ -152,8 +143,13 @@
           ]
         },
         {
-          "from": "native-dist/aurivo-projectm-visualizer",
-          "to": "resources/native-dist/aurivo-projectm-visualizer"
+          "from": "native-dist",
+          "to": "resources/native-dist",
+          "filter": [
+            "aurivo-projectm-visualizer",
+            "libprojectM-4.so*",
+            "libprojectM-4-playlist.so*"
+          ]
         },
         {
           "from": "third_party/projectm/presets",
@@ -166,6 +162,10 @@
         {
           "from": "icons/aurivo_logo.bmp",
           "to": "resources/icons/aurivo_logo.bmp"
+        },
+        {
+          "from": "packaging/appstream/com.aurivo.mediaplayer.metainfo.xml",
+          "to": "usr/share/metainfo/com.aurivo.mediaplayer.metainfo.xml"
         }
       ]
     },
@@ -260,8 +260,6 @@
         "ar_SA"
       ],
       "include": "installer.nsh",
-      "installerHeader": "installerHeader.bmp",
-      "installerSidebar": "installerSidebar.bmp",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

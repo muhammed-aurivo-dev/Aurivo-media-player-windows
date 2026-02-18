@@ -876,7 +876,8 @@ function setupEventListeners() {
     }
     if (elements.aboutGithubBtn) {
         elements.aboutGithubBtn.addEventListener('click', async () => {
-            const url = 'https://github.com/muhammeddali1453-beep/Aurivo-Medya-Player';
+            // Canonical repo for downloads/updates.
+            const url = 'https://github.com/muhammed-aurivo-dev/Aurivo-Medya-Player-Linux';
             try {
                 if (window.aurivo?.webSecurity?.openExternal) {
                     await window.aurivo.webSecurity.openExternal(url);
@@ -10657,4 +10658,3 @@ document.addEventListener('DOMContentLoaded', () => {
         AGCController.init();
     }, 100);
 });
-

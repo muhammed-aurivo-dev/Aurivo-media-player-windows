@@ -1,4 +1,4 @@
-Aurivo Media Player - الشروط والترخيص
+﻿Aurivo Media Player - الشروط والترخيص
 
 الترخيص
 Aurivo Media Player برنامج مجاني ومفتوح المصدر بموجب رخصة MIT، ما لم يُذكر خلاف ذلك لمكونات الطرف الثالث.

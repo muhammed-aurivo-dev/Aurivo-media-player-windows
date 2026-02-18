@@ -1,0 +1,121 @@
+name: Build (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    env:
+      # Keep these in sync with package.json build.electronVersion
+      ELECTRON_VERSION: "28.3.3"
+
+      # Force node-gyp to build against Electron headers (not the host Node.js)
+      npm_config_runtime: "electron"
+      npm_config_target: "28.3.3"
+      npm_config_disturl: "https://electronjs.org/headers"
+      npm_config_build_from_source: "true"
+
+      # GitHub token for Electron Builder
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Copy runtime DLLs for the visualizer from MSYS2 MinGW64
+      AURIVO_VISUALIZER_DLL_DIR: "C:\\msys64\\mingw64\\bin"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup MSYS2 (MinGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-glm
+            mingw-w64-x86_64-freetype
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libjpeg-turbo
+
+      - name: Install projectM (MSYS2) or build from source
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # Package name differs across MSYS2 snapshots. Try common names first.
+          if pacman -S --noconfirm --needed mingw-w64-x86_64-libprojectm; then
+            echo "Installed mingw-w64-x86_64-libprojectm"
+            exit 0
+          fi
+          if pacman -S --noconfirm --needed mingw-w64-x86_64-projectm; then
+            echo "Installed mingw-w64-x86_64-projectm"
+            exit 0
+          fi
+
+          echo "projectM package not found in MSYS2 repos; building libprojectM v4 from source..."
+          PROJECTM_VER="4.1.6"
+          curl -fsSL -o /tmp/libprojectM-${PROJECTM_VER}.tar.gz \
+            "https://sourceforge.net/projects/projectm.mirror/files/v${PROJECTM_VER}/libprojectM-${PROJECTM_VER}.tar.gz/download"
+          tar -xzf /tmp/libprojectM-${PROJECTM_VER}.tar.gz -C /tmp
+
+          cmake -S "/tmp/libprojectM-${PROJECTM_VER}" -B /tmp/build-projectm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX=/mingw64
+          cmake --build /tmp/build-projectm
+          cmake --install /tmp/build-projectm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build native audio addon (aurivo_audio.node)
+        run: npm --prefix native ci
+
+      - name: Build projectM visualizer (aurivo-projectm-visualizer.exe)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/mingw64
+          cmake --build build-visualizer
+          mkdir -p native-dist
+          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
+
+      - name: Prepare Windows resources (ffmpeg + visualizer DLLs)
+        run: npm run -s prepare:win:resources
+
+      - name: Build Windows installer (NSIS)
+        run: npm run -s build:win
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist-${{ github.run_id }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.yml
