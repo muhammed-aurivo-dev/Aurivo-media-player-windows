@@ -1552,6 +1552,30 @@ function getLocalizedText(key, lang) {
             ne: 'रिलिज नोटहरू उपलब्ध छैनन्। विवरणका लागि GitHub Releases पेज हेर्नुहोस्।',
             pl: 'Brak informacji o wydaniu. Szczegóły znajdziesz na stronie GitHub Releases.'
         }
+        ,
+        updateUnsupportedLinuxPm: {
+            tr: 'Bu Linux kurulum türünde otomatik güncelleme desteklenmiyor. Lütfen paket yöneticinizle güncelleyin (örn. APT/DNF/Pacman) veya AppImage sürümünü kullanın.',
+            en: 'In-app updates are not supported for this Linux install type. Please update via your package manager (e.g., APT/DNF/Pacman) or use the AppImage build.',
+            ar: 'التحديث داخل التطبيق غير مدعوم لهذا النوع من تثبيت لينكس. يرجى التحديث عبر مدير الحزم أو استخدام إصدار AppImage.',
+            de: 'In-App-Updates werden für diese Linux-Installation nicht unterstützt. Bitte über den Paketmanager aktualisieren oder die AppImage-Version verwenden.',
+            fr: 'Les mises à jour intégrées ne sont pas prises en charge pour ce type d’installation Linux. Mettez à jour via le gestionnaire de paquets ou utilisez AppImage.',
+            es: 'Las actualizaciones dentro de la app no están soportadas para este tipo de instalación Linux. Actualiza con tu gestor de paquetes o usa AppImage.',
+            it: 'Gli aggiornamenti in-app non sono supportati per questo tipo di installazione Linux. Aggiorna tramite package manager o usa AppImage.',
+            pt: 'Atualizações no aplicativo não são suportadas para este tipo de instalação no Linux. Atualize via gerenciador de pacotes ou use AppImage.',
+            ru: 'Встроенные обновления не поддерживаются для этого типа установки Linux. Обновляйте через менеджер пакетов или используйте AppImage.',
+            uk: 'Вбудовані оновлення не підтримуються для цього типу інсталяції Linux. Оновлюйте через менеджер пакунків або використовуйте AppImage.',
+            fi: 'Sovelluksen sisäisiä päivityksiä ei tueta tälle Linux-asennustyypille. Päivitä pakettienhallinnalla tai käytä AppImage-versiota.',
+            hu: 'Ehhez a Linux telepítési típushoz nem támogatott a beépített frissítés. Frissíts csomagkezelővel vagy használd az AppImage verziót.',
+            el: 'Οι ενσωματωμένες ενημερώσεις δεν υποστηρίζονται για αυτόν τον τύπο εγκατάστασης Linux. Ενημερώστε μέσω διαχειριστή πακέτων ή χρησιμοποιήστε AppImage.',
+            ja: 'この Linux インストール形式ではアプリ内更新はサポートされません。パッケージマネージャーで更新するか AppImage 版を使用してください。',
+            zh: '此 Linux 安装方式不支持应用内更新。请使用系统包管理器更新，或改用 AppImage 版本。',
+            vi: 'Không hỗ trợ cập nhật trong ứng dụng cho kiểu cài đặt Linux này. Hãy cập nhật bằng trình quản lý gói hoặc dùng bản AppImage.',
+            fa: 'به‌روزرسانی داخل برنامه برای این نوع نصب لینوکس پشتیبانی نمی‌شود. لطفاً با مدیر بسته‌ها به‌روزرسانی کنید یا از AppImage استفاده کنید.',
+            hi: 'इस Linux इंस्टॉल प्रकार के लिए इन-ऐप अपडेट समर्थित नहीं है। कृपया पैकेज मैनेजर से अपडेट करें या AppImage उपयोग करें।',
+            bn: 'এই Linux ইনস্টল টাইপে ইন-অ্যাপ আপডেট সমর্থিত নয়। প্যাকেজ ম্যানেজার দিয়ে আপডেট করুন অথবা AppImage ব্যবহার করুন।',
+            ne: 'यो Linux स्थापना प्रकारका लागि इन-एप अपडेट समर्थित छैन। प्याकेज म्यानेजरबाट अपडेट गर्नुहोस् वा AppImage प्रयोग गर्नुहोस्।',
+            pl: 'Aktualizacje w aplikacji nie są obsługiwane dla tego typu instalacji Linuksa. Zaktualizuj przez menedżer pakietów lub użyj AppImage.'
+        }
     };
     const table = dict[key] || {};
     return table[L] || table.en || '';
@@ -1603,6 +1627,7 @@ function updateUpdateUiFromState(st) {
     updateUi.state = st || null;
 
     const supported = !!st?.supported;
+    const reason = String(st?.reason || '');
     const status = String(st?.status || 'idle');
     const available = !!st?.available;
     const version = String(st?.version || '');
@@ -1610,7 +1635,10 @@ function updateUpdateUiFromState(st) {
     const rawNotes = String(st?.releaseNotes || '').trim();
     const localizedFromBlocks = pickLocalizedReleaseNotes(rawNotes, lang);
     const cleaned = normalizeReleaseNotesText(localizedFromBlocks || rawNotes);
-    const notes = cleaned || getLocalizedText('updateNotesFallback', lang) || '-';
+    const linuxPmHint = (!supported && reason === 'linux-package-manager')
+        ? (getLocalizedText('updateUnsupportedLinuxPm', lang) || '')
+        : '';
+    const notes = linuxPmHint || cleaned || getLocalizedText('updateNotesFallback', lang) || '-';
     const progress = Number(st?.progress || 0);
     const err = String(st?.error || '').trim();
 
@@ -1651,7 +1679,7 @@ function updateUpdateUiFromState(st) {
 
     if (elements.updateActionBtn) {
         if (!supported) {
-            elements.updateActionBtn.textContent = 'Desteklenmiyor';
+            elements.updateActionBtn.textContent = (reason === 'linux-package-manager') ? 'Paket yöneticisi' : 'Desteklenmiyor';
             elements.updateActionBtn.disabled = true;
         } else if (status === 'downloaded') {
             elements.updateActionBtn.textContent = 'Yeniden başlat ve kur';
@@ -1708,7 +1736,15 @@ async function requestUpdateCheck() {
         // Res is the state snapshot; actual updates come via event as well.
         if (res && typeof res === 'object') updateUpdateUiFromState(res);
         if (res?.status === 'not-available') safeNotify('Güncelleme yok.', 'info', 2000);
-        if (res?.supported === false) safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+        if (res?.supported === false) {
+            const lang = getUiLangCode();
+            const reason = String(res?.reason || '');
+            if (reason === 'linux-package-manager') {
+                safeNotify(getLocalizedText('updateUnsupportedLinuxPm', lang) || 'Paket yöneticisi ile güncelleyin.', 'info', 4500);
+            } else {
+                safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+            }
+        }
     } catch (e) {
         safeNotify('Güncelleme kontrolü başarısız: ' + (e?.message || e), 'error', 4000);
     }
@@ -1721,7 +1757,13 @@ async function handlePrimaryUpdateAction() {
     const available = !!st.available;
 
     if (!supported) {
-        safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+        const lang = getUiLangCode();
+        const reason = String(st.reason || '');
+        if (reason === 'linux-package-manager') {
+            safeNotify(getLocalizedText('updateUnsupportedLinuxPm', lang) || 'Paket yöneticisi ile güncelleyin.', 'info', 4500);
+        } else {
+            safeNotify('Güncelleme denetimi paketli sürümde çalışır (installer).', 'info', 3500);
+        }
         return;
     }
 

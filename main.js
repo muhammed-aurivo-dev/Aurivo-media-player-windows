@@ -425,6 +425,7 @@ const UPDATE_STATE_IPC = 'update:state';
 const UPDATE_META_PATH = () => path.join(app.getPath('userData'), 'update-meta.json');
 const updateState = {
     supported: false,
+    reason: '', // '', 'dev', 'linux-package-manager'
     status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error
     available: false,
     version: '',
@@ -432,6 +433,19 @@ const updateState = {
     progress: 0,
     error: ''
 };
+
+function isLinuxAppImage() {
+    // For AppImage, electron-updater supports in-app updates; deb/rpm should be updated via package manager.
+    return process.platform === 'linux' && !!process.env.APPIMAGE;
+}
+
+function computeUpdateSupport() {
+    if (!app.isPackaged) return { supported: false, reason: 'dev' };
+    if (process.platform === 'linux' && !isLinuxAppImage()) {
+        return { supported: false, reason: 'linux-package-manager' };
+    }
+    return { supported: true, reason: '' };
+}
 
 function stripHtmlToText(raw) {
     const s = String(raw || '');
@@ -493,13 +507,15 @@ function initAutoUpdater() {
         }
     }
 
-    // Only supported in packaged builds by default.
-    if (!app.isPackaged) {
-        setUpdateState({ supported: false, status: 'idle' });
+    // Only supported in packaged builds, and on Linux only for AppImage.
+    const support = computeUpdateSupport();
+    if (!support.supported) {
+        setUpdateState({ supported: false, reason: support.reason, status: 'idle' });
         return;
     }
 
     updateState.supported = true;
+    updateState.reason = '';
     try {
         autoUpdater.autoDownload = false;
     } catch { }
@@ -2656,8 +2672,9 @@ ipcMain.handle('update:getState', async () => {
 });
 
 ipcMain.handle('update:check', async () => {
-    if (!autoUpdater || !app.isPackaged) {
-        setUpdateState({ supported: false, status: 'idle' });
+    const support = computeUpdateSupport();
+    if (!autoUpdater || !support.supported) {
+        setUpdateState({ supported: false, reason: support.reason, status: 'idle' });
         return updateState;
     }
     try {
@@ -2671,7 +2688,8 @@ ipcMain.handle('update:check', async () => {
 });
 
 ipcMain.handle('update:download', async () => {
-    if (!autoUpdater || !app.isPackaged) return { ok: false };
+    const support = computeUpdateSupport();
+    if (!autoUpdater || !support.supported) return { ok: false };
     try {
         await autoUpdater.downloadUpdate();
         return { ok: true };
@@ -2682,7 +2700,8 @@ ipcMain.handle('update:download', async () => {
 });
 
 ipcMain.handle('update:install', async () => {
-    if (!autoUpdater || !app.isPackaged) return { ok: false };
+    const support = computeUpdateSupport();
+    if (!autoUpdater || !support.supported) return { ok: false };
     try {
         // Ensure we don't keep running in background (tray/minimize behavior).
         prepareQuitForUpdate();
