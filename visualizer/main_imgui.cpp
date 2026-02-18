@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_version.h>
 #ifdef _WIN32
 #include <SDL2/SDL_syswm.h>
 #endif
@@ -559,7 +560,11 @@ static const char* L7Raw(const char* en, const char* tr, const char* ar, const c
 }
 
 static uint64_t nowMs() {
+#if SDL_VERSION_ATLEAST(2, 0, 18)
     return SDL_GetTicks64();
+#else
+    return (uint64_t)SDL_GetTicks();
+#endif
 }
 
 static void scheduleNextAutoSwitch();
@@ -1652,7 +1657,7 @@ static void drawPresetPicker() {
     ImGui::Begin("##AurivoPickerRoot", nullptr, rootFlags);
 
 	    // OS pencere başlığını istemci alanda tekrar ederek çoğaltma.
-		    ImGui::TextDisabled(L7(
+		    ImGui::TextDisabled("%s", L7(
 		        "Select visuals for auto-switch",
 		        "Otomatik ge\u00E7i\u015F i\u00E7in g\u00F6rselleri i\u015Faretleyin",
 		        "Ø­Ø¯Ø¯ Ø§Ù„Ù…Ø±Ø¦ÙŠØ§Øª Ù„Ù„ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ",
@@ -2713,7 +2718,5 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
-
-
 
 
