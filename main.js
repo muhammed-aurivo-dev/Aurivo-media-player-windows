@@ -400,6 +400,24 @@ let tray = null;
 let lastTrayState = { isPlaying: false, currentTrack: 'Aurivo Media Player', isMuted: false, stopAfterCurrent: false };
 let mprisPlayer = null;
 
+// During update install, we must fully quit the app (including tray/background)
+// so NSIS can replace files without "app is running" errors.
+let isQuittingForUpdate = false;
+
+function prepareQuitForUpdate() {
+    try { isQuittingForUpdate = true; } catch { }
+    try { app.isQuitting = true; } catch { }
+    try {
+        if (tray) {
+            tray.destroy();
+            tray = null;
+        }
+    } catch {
+        // best-effort
+    }
+    try { stopVisualizer(); } catch { }
+}
+
 // ============================================
 // AUTO UPDATER (GitHub Releases via electron-updater)
 // ============================================
@@ -532,6 +550,13 @@ function initAutoUpdater() {
     autoUpdater.on('update-downloaded', () => {
         setUpdateState({ status: 'downloaded', progress: 100 });
     });
+
+    // Some platforms emit this before quitting to apply an update.
+    try {
+        autoUpdater.on('before-quit-for-update', () => {
+            prepareQuitForUpdate();
+        });
+    } catch { }
 
     autoUpdater.on('error', (err) => {
         const raw = String(err?.message || err || 'unknown error');
@@ -2610,7 +2635,7 @@ if (gotSingleInstanceLock) app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
     // Tray varsa uygulamayı kapatma (arka planda çalışmaya devam et)
-    if (process.platform !== 'darwin' && !tray) {
+    if (process.platform !== 'darwin' && (!tray || isQuittingForUpdate)) {
         app.quit();
     }
 });
@@ -2659,7 +2684,14 @@ ipcMain.handle('update:download', async () => {
 ipcMain.handle('update:install', async () => {
     if (!autoUpdater || !app.isPackaged) return { ok: false };
     try {
-        autoUpdater.quitAndInstall();
+        // Ensure we don't keep running in background (tray/minimize behavior).
+        prepareQuitForUpdate();
+        // NSIS: quit the app and launch installer.
+        autoUpdater.quitAndInstall(false, true);
+        // Safety net: if something keeps the process alive, force exit so installer can proceed.
+        setTimeout(() => {
+            try { app.exit(0); } catch { }
+        }, 5000);
         return { ok: true };
     } catch (e) {
         setUpdateState({ status: 'error', error: String(e?.message || e) });
