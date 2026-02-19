@@ -149,7 +149,11 @@ function findObjdump(dllDir) {
 function listDllDeps(objdumpPath, filePath) {
   if (!objdumpPath || !filePath || !fs.existsSync(filePath)) return [];
   try {
-    const out = cp.execFileSync(objdumpPath, ['-p', filePath], { encoding: 'utf8' });
+    const out = cp.execFileSync(objdumpPath, ['-p', filePath], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true
+    });
     const deps = [];
     for (const line of String(out || '').split(/\r?\n/)) {
       const m = line.match(/DLL Name:\s*(.+)$/i);
@@ -246,9 +250,12 @@ function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
       'libharfbuzz-0.dll',
       'libbrotlidec.dll',
       'libbrotlicommon.dll',
+      'libbrotlienc.dll',
       'libbz2-1.dll',
       'libiconv-2.dll',
-      'libintl-8.dll'
+      'libintl-8.dll',
+      'libhwy.dll',
+      'libjxl_cms.dll'
     ];
     const missing = mustExist.filter((n) => !exists(path.join(nativeDistDir, n)));
     if (missing.length) {
@@ -262,6 +269,48 @@ function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
   const dllDir = resolveVisualizerDllDirGuess();
   const objdumpPath = findObjdump(dllDir) || findObjdump('');
   assertBundledDllClosure(nativeDistDir, objdumpPath, visualizerExe, 'Visualizer');
+}
+
+function assertVisualizerLaunchable(visualizerExe, nativeDistDir) {
+  if (!visualizerExe || !exists(visualizerExe)) return;
+
+  // Smoke-test only: we just want to catch loader errors like missing DLL (0xC0000135).
+  // No GPU/display assumptions here; non-zero app-level exits are tolerated.
+  const env = { ...process.env };
+  env.PATH = `${nativeDistDir};${env.PATH || ''}`;
+
+  let res;
+  try {
+    res = cp.spawnSync(visualizerExe, ['--help'], {
+      cwd: nativeDistDir,
+      env,
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 10000
+    });
+  } catch (e) {
+    throw new Error(`Visualizer smoke-test başlatılamadı: ${e?.message || e}`);
+  }
+
+  const status = Number(res?.status);
+  const missingDllCodes = new Set([3221225781, -1073741515]); // 0xC0000135
+
+  if (missingDllCodes.has(status)) {
+    const out = String(res?.stdout || '').trim();
+    const err = String(res?.stderr || '').trim();
+    throw new Error(
+      'Visualizer smoke-test eksik DLL ile çöktü (0xC0000135).\n' +
+        `exe=${visualizerExe}\n` +
+        `cwd=${nativeDistDir}\n` +
+        (out ? `stdout:\n${out}\n` : '') +
+        (err ? `stderr:\n${err}\n` : '')
+    );
+  }
+
+  if (res?.error && !missingDllCodes.has(Number(res?.error?.errno))) {
+    const code = res.error.code || res.error.errno || '';
+    throw new Error(`Visualizer smoke-test process error: ${code} ${res.error.message || ''}`.trim());
+  }
 }
 
 function findFiles(rootDir, predicate, limit = 50) {
@@ -322,6 +371,7 @@ function main() {
     } else {
       assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
       assertVisualizerRuntimeDlls(path.join(root, 'native-dist'), visualizerExe);
+      assertVisualizerLaunchable(visualizerExe, path.join(root, 'native-dist'));
     }
   }
 

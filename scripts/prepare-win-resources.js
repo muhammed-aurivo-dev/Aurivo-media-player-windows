@@ -278,7 +278,11 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
   const listDllDeps = (filePath) => {
     if (!objdumpPath || !filePath || !fs.existsSync(filePath)) return [];
     try {
-      const out = cp.execFileSync(objdumpPath, ['-p', filePath], { encoding: 'utf8' });
+      const out = cp.execFileSync(objdumpPath, ['-p', filePath], {
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true
+      });
       const deps = [];
       for (const line of String(out || '').split(/\r?\n/)) {
         const m = line.match(/DLL Name:\s*(.+)$/i);
@@ -368,9 +372,12 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     'libharfbuzz-0.dll',
     'libbrotlidec.dll',
     'libbrotlicommon.dll',
+    'libbrotlienc.dll',
     'libbz2-1.dll',
     'libiconv-2.dll',
     'libintl-8.dll',
+    'libhwy.dll',
+    'libjxl_cms.dll',
     'SDL2.dll',
     'SDL2_image.dll',
     'glew32.dll'
@@ -427,6 +434,7 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
 function main() {
   const root = path.resolve(__dirname, '..');
+  const requireDlls = String(process.env.AURIVO_REQUIRE_VISUALIZER_DLLS || '').trim() === '1';
 
   const binDir = path.join(root, 'bin');
   ensureDir(binDir);
@@ -463,7 +471,6 @@ function main() {
 
     // If the visualizer exists but we can't find MSYS2's DLL dir, this almost always means
     // the packaged app will fail to start the visualizer on a clean Windows machine.
-    const requireDlls = String(process.env.AURIVO_REQUIRE_VISUALIZER_DLLS || '').trim() === '1';
     const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
     const hasVisualizerExe = safeExists(visualizerExe);
 
@@ -506,7 +513,11 @@ function main() {
       console.warn(msg);
     }
   } catch (e) {
-    console.warn('[prepare-win-resources] Visualizer DLL kopyalama hatası:', e?.message || e);
+    const msg = e?.message || e;
+    if (requireDlls) {
+      throw new Error(`[prepare-win-resources] Visualizer DLL kopyalama hatası: ${msg}`);
+    }
+    console.warn('[prepare-win-resources] Visualizer DLL kopyalama hatası:', msg);
   }
 }
 

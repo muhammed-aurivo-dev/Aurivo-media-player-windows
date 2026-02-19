@@ -2304,9 +2304,12 @@ function startVisualizer() {
         'libharfbuzz-0.dll',
         'libbrotlidec.dll',
         'libbrotlicommon.dll',
+        'libbrotlienc.dll',
         'libbz2-1.dll',
         'libiconv-2.dll',
-        'libintl-8.dll'
+        'libintl-8.dll',
+        'libhwy.dll',
+        'libjxl_cms.dll'
     ]);
 
     const presetsCandidates = [
