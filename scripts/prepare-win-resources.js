@@ -375,13 +375,6 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     'SDL2_image.dll',
     'glew32.dll'
   ];
-  // Copy and also enqueue their dependencies (some important deps are only reachable
-  // via transitive imports from these DLLs).
-  for (const n of mustHave) {
-    const from = copyOne(n);
-    if (from) enqueueDeps(from);
-  }
-
   const queue = [];
   const seen = new Set();
 
@@ -396,6 +389,13 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
       queue.push(name);
     }
   };
+
+  // Copy and also enqueue their dependencies (some important deps are only reachable
+  // via transitive imports from these DLLs).
+  for (const n of mustHave) {
+    const from = copyOne(n);
+    if (from) enqueueDeps(from);
+  }
 
   for (const f of seedFiles) enqueueDeps(f);
 
