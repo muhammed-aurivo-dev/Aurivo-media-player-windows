@@ -315,107 +315,130 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 
   let copied = 0;
   let skipped = 0;
+  let removed = 0;
 
-  const copyOne = (name) => {
-    if (!name) return '';
-    const from = findInSearchDirs(name);
-    if (!from) {
-      skipped++;
-      return '';
+  const isLikelySystemDll = (name) => {
+    const n = toLower(name);
+    if (n.startsWith('api-ms-win-') || n.startsWith('ext-ms-')) return true;
+    const system = new Set([
+      'advapi32.dll',
+      'bcrypt.dll',
+      'comctl32.dll',
+      'comdlg32.dll',
+      'crypt32.dll',
+      'dwmapi.dll',
+      'gdi32.dll',
+      'gdi32full.dll',
+      'imm32.dll',
+      'kernel32.dll',
+      'opengl32.dll',
+      'msvcrt.dll',
+      'ntdll.dll',
+      'ole32.dll',
+      'oleaut32.dll',
+      'psapi.dll',
+      'rpcrt4.dll',
+      'secur32.dll',
+      'setupapi.dll',
+      'shell32.dll',
+      'shlwapi.dll',
+      'ucrtbase.dll',
+      'user32.dll',
+      'version.dll',
+      'winmm.dll',
+      'ws2_32.dll'
+    ]);
+    return system.has(n);
+  };
+
+  const resolveDllPath = (name) => {
+    const fromSearch = findInSearchDirs(name);
+    if (fromSearch) return fromSearch;
+    const existing = path.join(nativeDistDir, name);
+    if (safeExists(existing)) return existing;
+    return '';
+  };
+
+  const rootNames = [
+    'SDL2.dll',
+    'SDL2_image.dll',
+    'glew32.dll',
+    'libstdc++-6.dll',
+    'libgcc_s_seh-1.dll',
+    'libwinpthread-1.dll',
+    'libprojectM-4-4.dll',
+    'libprojectM-4-playlist-4.dll'
+  ];
+
+  const roots = [];
+  const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
+  if (safeExists(visualizerExe)) roots.push(visualizerExe);
+  for (const n of rootNames) {
+    const p = resolveDllPath(n);
+    if (p) roots.push(p);
+  }
+
+  const requiredDlls = new Set();
+  const visitedFiles = new Set();
+  const queue = [...roots];
+
+  let steps = 0;
+  while (queue.length && steps < 500) {
+    steps++;
+    const cur = String(queue.shift() || '');
+    if (!cur) continue;
+    const curKey = toLower(cur);
+    if (visitedFiles.has(curKey)) continue;
+    visitedFiles.add(curKey);
+
+    const curBase = path.basename(cur);
+    if (isDll(curBase)) requiredDlls.add(curBase);
+
+    const deps = listDllDeps(cur);
+    for (const dep of deps) {
+      const name = path.basename(dep);
+      if (!isDll(name)) continue;
+      if (isLikelySystemDll(name)) continue;
+      requiredDlls.add(name);
+
+      const depPath = resolveDllPath(name);
+      if (depPath) {
+        queue.push(depPath);
+      } else {
+        skipped++;
+      }
     }
+  }
+
+  for (const name of requiredDlls) {
+    const from = findInSearchDirs(name);
+    if (!from) continue;
     const to = path.join(nativeDistDir, name);
     try {
       fs.copyFileSync(from, to);
       copied++;
-      return from;
     } catch (e) {
       console.warn('[prepare-win-resources] DLL kopyalanamadı:', name, e?.message || e);
       skipped++;
-      return '';
     }
-  };
+  }
 
-  // Seed: the visualizer exe + known core runtime DLLs.
-  const seedFiles = [];
-  const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
-  if (fs.existsSync(visualizerExe)) seedFiles.push(visualizerExe);
-
-  // Also seed with projectM DLLs if they exist in the MSYS2 dir.
-  try {
-    const probeDir = searchDirs.find((d) => {
-      try { return fs.existsSync(d); } catch { return false; }
-    });
-    if (probeDir) {
-      for (const entry of fs.readdirSync(probeDir, { withFileTypes: true })) {
+  const keepExtras = String(process.env.AURIVO_KEEP_EXTRA_VISUALIZER_DLLS || '').trim() === '1';
+  if (!keepExtras) {
+    try {
+      for (const entry of fs.readdirSync(nativeDistDir, { withFileTypes: true })) {
         if (!entry.isFile()) continue;
-        const lower = toLower(entry.name);
-        if (lower.includes('projectm') && isDll(entry.name)) {
-          seedFiles.push(path.join(probeDir, entry.name));
+        if (!isDll(entry.name)) continue;
+        if (requiredDlls.has(entry.name)) continue;
+        try {
+          fs.unlinkSync(path.join(nativeDistDir, entry.name));
+          removed++;
+        } catch {
+          // ignore
         }
       }
-    }
-  } catch {
-    // ignore
-  }
-
-  // Always include MinGW runtime basics (common missing DLLs).
-  const mustHave = [
-    'libwinpthread-1.dll',
-    'libgcc_s_seh-1.dll',
-    'libstdc++-6.dll',
-    // projectM runtime (common)
-    'libprojectM-4-4.dll',
-    'libprojectM-4-playlist-4.dll',
-    'zlib1.dll',
-    // Common transitive deps (SDL2_image / freetype / i18n)
-    'libfreetype-6.dll',
-    'libharfbuzz-0.dll',
-    'libbrotlidec.dll',
-    'libbrotlicommon.dll',
-    'libbrotlienc.dll',
-    'libbz2-1.dll',
-    'libiconv-2.dll',
-    'libintl-8.dll',
-    'libhwy.dll',
-    'libjxl_cms.dll',
-    'SDL2.dll',
-    'SDL2_image.dll',
-    'glew32.dll'
-  ];
-  const queue = [];
-  const seen = new Set();
-
-  const enqueueDeps = (fromFile) => {
-    const deps = listDllDeps(fromFile);
-    for (const d of deps) {
-      const name = path.basename(d);
-      if (!isDll(name)) continue;
-      const key = toLower(name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      queue.push(name);
-    }
-  };
-
-  // Copy and also enqueue their dependencies (some important deps are only reachable
-  // via transitive imports from these DLLs).
-  for (const n of mustHave) {
-    const from = copyOne(n);
-    if (from) enqueueDeps(from);
-  }
-
-  for (const f of seedFiles) enqueueDeps(f);
-
-  // BFS: copy deps and then scan their deps too (transitive).
-  // Limit to prevent runaway in case objdump output is unexpected.
-  let steps = 0;
-  while (queue.length && steps < 250) {
-    steps++;
-    const name = queue.shift();
-    if (!name) continue;
-    const fromPath = copyOne(name);
-    if (fromPath) {
-      enqueueDeps(fromPath);
+    } catch {
+      // ignore
     }
   }
 
@@ -426,7 +449,9 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
     to: nativeDistDir,
     objdump: objdumpPath || '(none)',
     copied,
-    skipped
+    skipped,
+    required: requiredDlls.size,
+    removed
   });
 
   return { copied, skipped };
@@ -435,6 +460,9 @@ function copyVisualizerDllsFromDir(dllDir, nativeDistDir) {
 function main() {
   const root = path.resolve(__dirname, '..');
   const requireDlls = String(process.env.AURIVO_REQUIRE_VISUALIZER_DLLS || '').trim() === '1';
+  const nativeDistLegacyDir = path.join(root, 'native-dist');
+  const nativeDistDir = path.join(root, 'native-dist', 'windows');
+  ensureDir(nativeDistDir);
 
   const binDir = path.join(root, 'bin');
   ensureDir(binDir);
@@ -454,14 +482,14 @@ function main() {
     }
   }
 
-  const nativeDistDir = path.join(root, 'native-dist');
-  if (!fs.existsSync(nativeDistDir)) {
-    console.warn('[prepare-win-resources] native-dist dizini yok:', nativeDistDir);
-  } else {
-    const hasExe = fs.existsSync(path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe'));
-    if (!hasExe) {
-      console.warn('[prepare-win-resources] Visualizer exe yok (Windows build için gerekli):', path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe'));
-    }
+  const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
+  const legacyVisualizerExe = path.join(nativeDistLegacyDir, 'aurivo-projectm-visualizer.exe');
+  if (!safeExists(visualizerExe) && safeExists(legacyVisualizerExe)) {
+    copyIfExists(legacyVisualizerExe, visualizerExe);
+  }
+
+  if (!safeExists(visualizerExe)) {
+    console.warn('[prepare-win-resources] Visualizer exe yok (Windows build için gerekli):', visualizerExe);
   }
 
   // Optional: copy visualizer runtime DLLs (MSYS2/MinGW etc.)
@@ -471,7 +499,6 @@ function main() {
 
     // If the visualizer exists but we can't find MSYS2's DLL dir, this almost always means
     // the packaged app will fail to start the visualizer on a clean Windows machine.
-    const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
     const hasVisualizerExe = safeExists(visualizerExe);
 
     if (dllDir) {
@@ -486,15 +513,7 @@ function main() {
           'libgcc_s_seh-1.dll',
           'libstdc++-6.dll',
           'libwinpthread-1.dll',
-          'libprojectM-4-4.dll',
-          // Transitive deps that commonly go missing in packaging
-          'libfreetype-6.dll',
-          'libharfbuzz-0.dll',
-          'libbrotlidec.dll',
-          'libbrotlicommon.dll',
-          'libbz2-1.dll',
-          'libiconv-2.dll',
-          'libintl-8.dll'
+          'libprojectM-4-4.dll'
         ];
         const missing = mustExist.filter((n) => !safeExists(path.join(nativeDistDir, n)));
         if (missing.length) {

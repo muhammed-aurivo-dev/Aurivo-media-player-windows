@@ -121,6 +121,23 @@ function prependToProcessPath(dir) {
     process.env.PATH = `${dir}${delimiter}${cur}`;
 }
 
+function getNativeDistPlatformDirName(platform = process.platform) {
+    if (platform === 'win32') return 'windows';
+    if (platform === 'linux') return 'linux';
+    if (platform === 'darwin') return 'mac';
+    return platform;
+}
+
+function getNativeDistDirCandidates(baseDir, platform = process.platform) {
+    const out = [];
+    if (baseDir) {
+        out.push(path.join(baseDir, 'native-dist', getNativeDistPlatformDirName(platform)));
+        // Backward-compatible fallback for previously published builds.
+        out.push(path.join(baseDir, 'native-dist'));
+    }
+    return out;
+}
+
 function ensureWindowsRuntimePaths() {
     if (process.platform !== 'win32') return;
 
@@ -129,13 +146,17 @@ function ensureWindowsRuntimePaths() {
         if (process.resourcesPath) {
             prependToProcessPath(path.join(process.resourcesPath, 'bin'));
             prependToProcessPath(path.join(process.resourcesPath, 'native', 'build', 'Release'));
-            prependToProcessPath(path.join(process.resourcesPath, 'native-dist'));
+            for (const p of getNativeDistDirCandidates(process.resourcesPath, 'win32')) {
+                prependToProcessPath(p);
+            }
         }
 
         // Geliştirici yedekleri
         prependToProcessPath(path.join(__dirname, 'third_party', 'ffmpeg'));
         prependToProcessPath(path.join(__dirname, 'native', 'build', 'Release'));
-        prependToProcessPath(path.join(__dirname, 'native-dist'));
+        for (const p of getNativeDistDirCandidates(__dirname, 'win32')) {
+            prependToProcessPath(p);
+        }
     } catch (e) {
         console.warn('[WIN] PATH prep failed:', e?.message || e);
     }
@@ -154,7 +175,9 @@ function logWindowsRuntimeDepsOnce(context = '') {
     try {
         const base = process.resourcesPath || '(no resourcesPath)';
         const releaseDir = process.resourcesPath ? path.join(process.resourcesPath, 'native', 'build', 'Release') : '';
-        const nativeDistDir = process.resourcesPath ? path.join(process.resourcesPath, 'native-dist') : '';
+        const nativeDistDir = process.resourcesPath
+            ? pickFirstExistingPath(getNativeDistDirCandidates(process.resourcesPath, 'win32'))
+            : '';
         const binDir = process.resourcesPath ? path.join(process.resourcesPath, 'bin') : '';
         const visualizerExe = process.resourcesPath ? path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe') : '';
         const ffmpegExe = process.resourcesPath ? path.join(binDir, 'ffmpeg.exe') : '';
@@ -2067,6 +2090,45 @@ ipcMain.handle('eqPresets:getFeaturedList', () => {
 let visualizerProc = null;
 let visualizerFeedTimer = null;
 let visualizerFeedStats = null;
+let visualizerToggleBusy = false;
+let visualizerStopRequested = false;
+let visualizerStartedAt = 0;
+
+function isVisualizerRunning() {
+    if (!visualizerProc) return false;
+    try {
+        if (visualizerProc.killed) return false;
+        if (visualizerProc.exitCode !== null) return false;
+        if (visualizerProc.signalCode !== null) return false;
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function normalizeVisualizerProcState() {
+    if (!visualizerProc) return;
+    if (isVisualizerRunning()) return;
+    visualizerProc = null;
+}
+
+function focusVisualizerWindow() {
+    if (process.platform !== 'win32') return false;
+    try {
+        const pid = Number(visualizerProc?.pid || 0);
+        if (!pid) return false;
+        const ps = `$ws=New-Object -ComObject WScript.Shell; Start-Sleep -Milliseconds 50; [void]$ws.AppActivate(${pid})`;
+        const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+            windowsHide: true,
+            detached: true,
+            stdio: 'ignore'
+        });
+        try { p.unref(); } catch { }
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 function stopVisualizerFeed() {
     if (visualizerFeedTimer) {
@@ -2209,9 +2271,11 @@ function getProjectMPresetsPath() {
 function getVisualizerExecutableCandidates() {
     const out = [];
 
-    // Paketlenmiş (Windows): native-dist tercih edilir; gerekirse taşınmış third_party'ye düş (binary içeriyorsa)
+    // Paketlenmiş (Windows): native-dist/windows tercih edilir; gerekirse taşınmış third_party'ye düş (binary içeriyorsa)
     if (app.isPackaged && process.platform === 'win32') {
-        out.push(path.join(process.resourcesPath, 'native-dist', 'aurivo-projectm-visualizer.exe'));
+        for (const p of getNativeDistDirCandidates(process.resourcesPath, 'win32')) {
+            out.push(path.join(p, 'aurivo-projectm-visualizer.exe'));
+        }
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'aurivo-projectm-visualizer.exe'));
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'bin', 'aurivo-projectm-visualizer.exe'));
         return out;
@@ -2221,9 +2285,11 @@ function getVisualizerExecutableCandidates() {
         ? 'aurivo-projectm-visualizer.exe'
         : 'aurivo-projectm-visualizer';
 
-    // Paketlenmiş (Linux/Mac): resources/native-dist (extraResources)
+    // Paketlenmiş (Linux/Mac): resources/native-dist/<platform> (legacy fallback: resources/native-dist)
     if (app.isPackaged) {
-        out.push(path.join(process.resourcesPath, 'native-dist', exeName));
+        for (const p of getNativeDistDirCandidates(process.resourcesPath, process.platform)) {
+            out.push(path.join(p, exeName));
+        }
         // third_party taşınmış ve binary içeriyorsa isteğe bağlı yedek
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', exeName));
         out.push(path.join(process.resourcesPath, 'third_party', 'projectm', 'bin', exeName));
@@ -2231,6 +2297,8 @@ function getVisualizerExecutableCandidates() {
     }
 
     // Dev: mevcut davranışı koru (distPath + build-visualizer adayları aşağıda)
+    const nativeDistPlatform = path.join('native-dist', getNativeDistPlatformDirName(process.platform), exeName);
+    out.push(getResourcePath(nativeDistPlatform));
     out.push(getResourcePath(path.join('native-dist', exeName)));
     return out;
 }
@@ -2275,7 +2343,12 @@ function getVisualizerExecutablePath() {
 }
 
 function startVisualizer() {
-    if (visualizerProc && !visualizerProc.killed) return true;
+    normalizeVisualizerProcState();
+    if (isVisualizerRunning()) {
+        focusVisualizerWindow();
+        return true;
+    }
+    visualizerStopRequested = false;
 
     const exeCandidates = getVisualizerExecutableCandidates();
     const exePath = getVisualizerExecutablePath();
@@ -2300,14 +2373,9 @@ function startVisualizer() {
         'libwebp-7.dll',
         'liblzma-5.dll',
         'libzstd.dll',
-        'libfreetype-6.dll',
-        'libharfbuzz-0.dll',
         'libbrotlidec.dll',
         'libbrotlicommon.dll',
         'libbrotlienc.dll',
-        'libbz2-1.dll',
-        'libiconv-2.dll',
-        'libintl-8.dll',
         'libhwy.dll',
         'libjxl_cms.dll'
     ]);
@@ -2428,28 +2496,41 @@ function startVisualizer() {
         const visualizerCwd = (() => {
             try { return path.dirname(exePath); } catch { return undefined; }
         })();
+        const showChildConsole = isDevMode();
+        const childStdio = showChildConsole ? ['pipe', 'inherit', 'inherit'] : ['pipe', 'ignore', 'ignore'];
 
         const startedAt = Date.now();
+        visualizerStartedAt = startedAt;
         visualizerProc = spawn(actualExe, actualArgs, {
             env,
             cwd: visualizerCwd,
-            stdio: ['pipe', 'inherit', 'inherit'], // Hata ayıklama için stdout/stderr her zaman inherit
+            stdio: childStdio,
             detached: process.platform !== 'win32', // Windows'ta detached+pipe bazı sistemlerde sorun çıkarabiliyor
+            // Visualizer penceresini gizlemeyelim; Windows terminal görünürlüğü native binary subsystem'u ile yönetilir.
             windowsHide: false
         });
 
         // Electron'ın görselleştiriciyi beklememesi için unref
         visualizerProc.unref();
 
+        // Windows: bazen yeni açılan pencere arka planda kalabiliyor; öne getirmeyi dene.
+        if (process.platform === 'win32') {
+            setTimeout(() => { focusVisualizerWindow(); }, 120);
+            setTimeout(() => { focusVisualizerWindow(); }, 420);
+        }
+
         startVisualizerFeed();
 
         visualizerProc.on('exit', (code, signal) => {
             console.log(`[Visualizer] kapandı (code=${code}, signal=${signal})`);
             stopVisualizerFeed();
+            const wasStopRequested = visualizerStopRequested || signal === 'SIGTERM';
+            visualizerStopRequested = false;
             visualizerProc = null;
 
             // If it exits immediately, show a friendly hint (usually missing DLL/OpenGL issues).
             try {
+                if (wasStopRequested) return;
                 const livedMs = Date.now() - startedAt;
                 if (livedMs < 2000) {
                     const missingDllExit = process.platform === 'win32' && Number(code) === 3221225781; // 0xC0000135
@@ -2506,10 +2587,10 @@ function startVisualizer() {
                         `Hata: ${err?.message || err}\n` +
                         `Exe: ${exePath}\n\n` +
                         'Olası nedenler:\n' +
-                        '- Eksik DLL bağımlılığı (resources/native-dist içeriği eksik)\n' +
+                        '- Eksik DLL bağımlılığı (resources/native-dist/windows içeriği eksik)\n' +
                         '- Antivirüs DLL/EXE dosyalarını silmiş olabilir\n\n' +
                         'Kontrol:\n' +
-                        '- Kurulum klasöründe `resources/native-dist` altında `libprojectM-4-4.dll`, `SDL2.dll`, `glew32.dll` var mı?',
+                        '- Kurulum klasöründe `resources/native-dist/windows` altında `libprojectM-4-4.dll`, `SDL2.dll`, `glew32.dll` var mı?',
                     buttons: ['Tamam']
                 }).catch(() => { /* ignore */ });
             } catch {
@@ -2538,28 +2619,66 @@ function startVisualizer() {
 }
 
 function stopVisualizer() {
-    if (!visualizerProc) return true;
+    normalizeVisualizerProcState();
+    if (!isVisualizerRunning()) return true;
     try {
         console.log('[Visualizer] stopping...');
+        visualizerStopRequested = true;
         stopVisualizerFeed();
         visualizerProc.kill('SIGTERM');
     } catch (e) {
         // en iyi çaba
     }
+    visualizerStartedAt = 0;
     visualizerProc = null;
     return true;
 }
 
 ipcMain.handle('visualizer:toggle', () => {
-    if (visualizerProc && !visualizerProc.killed) {
-        console.log('[Visualizer] toggle -> stop');
-        stopVisualizer();
-        return { running: false };
+    if (visualizerToggleBusy) {
+        return { running: isVisualizerRunning(), busy: true };
     }
 
-    console.log('[Visualizer] toggle -> start');
+    visualizerToggleBusy = true;
+    try {
+        normalizeVisualizerProcState();
+        if (isVisualizerRunning()) {
+            const livedMs = Date.now() - Number(visualizerStartedAt || 0);
+            // Ignore accidental double-click/duplicate toggle right after start.
+            if (livedMs >= 0 && livedMs < 1200) {
+                return { running: true, ignored: 'startup-guard' };
+            }
+            console.log('[Visualizer] toggle -> stop');
+            stopVisualizer();
+            return { running: false };
+        }
+
+        console.log('[Visualizer] toggle -> start');
+        const started = startVisualizer();
+        return { running: started };
+    } finally {
+        // Prevent rapid double-click races from instantly flipping start->stop.
+        setTimeout(() => { visualizerToggleBusy = false; }, 180);
+    }
+});
+
+ipcMain.handle('visualizer:start', () => {
+    normalizeVisualizerProcState();
+    if (isVisualizerRunning()) return { running: true };
     const started = startVisualizer();
     return { running: started };
+});
+
+ipcMain.handle('visualizer:stop', () => {
+    normalizeVisualizerProcState();
+    if (!isVisualizerRunning()) return { running: false };
+    stopVisualizer();
+    return { running: false };
+});
+
+ipcMain.handle('visualizer:status', () => {
+    normalizeVisualizerProcState();
+    return { running: isVisualizerRunning() };
 });
 
 // ============================================

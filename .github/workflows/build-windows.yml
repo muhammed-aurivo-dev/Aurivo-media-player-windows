@@ -133,8 +133,8 @@ jobs:
           set -euo pipefail
           cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/mingw64
           cmake --build build-visualizer
-          mkdir -p native-dist
-          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
+          mkdir -p native-dist/windows
+          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/windows/aurivo-projectm-visualizer.exe
 
       - name: Prepare Windows resources (ffmpeg + visualizer DLLs)
         run: npm run -s prepare:win:resources

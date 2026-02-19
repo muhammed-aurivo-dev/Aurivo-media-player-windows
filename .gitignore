@@ -27,7 +27,14 @@ Thumbs.db
 .vscode/
 
 # Generated
-native-dist/
+native-dist/*
+!native-dist/.gitkeep
+!native-dist/windows/
+native-dist/windows/*
+!native-dist/windows/.gitkeep
+!native-dist/linux/
+native-dist/linux/*
+!native-dist/linux/.gitkeep
 
 # Local duplicate assets (kept for dev, not tracked)
 assets/css/

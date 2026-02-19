@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build-visualizer-win-mingw"
 TOOLCHAIN_FILE="${ROOT_DIR}/scripts/toolchains/mingw64.cmake"
-NATIVE_DIST_DIR="${ROOT_DIR}/native-dist"
+NATIVE_DIST_DIR="${ROOT_DIR}/native-dist/windows"
 
 BUILD_TYPE="Release"
 RUN_WINE="0"
@@ -136,7 +136,7 @@ cp -f -- "${EXE_SRC}" "${EXE_DST}"
 echo "[mingw] copied: ${EXE_DST}"
 
 if [[ "${SKIP_RESOURCES}" != "1" ]]; then
-  echo "[mingw] bundling runtime DLLs into native-dist..."
+  echo "[mingw] bundling runtime DLLs into native-dist/windows..."
   if [[ -d "${DLL_DIR}" ]]; then
     AURIVO_VISUALIZER_DLL_DIR="${DLL_DIR}" node "${ROOT_DIR}/scripts/prepare-win-resources.js" || true
   else
@@ -153,4 +153,3 @@ if [[ "${RUN_WINE}" == "1" ]]; then
 fi
 
 echo "[mingw] done."
-

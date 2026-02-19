@@ -21,7 +21,7 @@
     "build:win:zip": "node native/copy-libs.js win32 && npm run -s prepare:win:resources && npm run -s verify:win:artifacts && electron-builder --win zip",
     "build:mac": "node native/copy-libs.js darwin && electron-builder --mac",
     "dist": "npm run build:linux",
-    "dev:win": "cmd /c \"chcp 65001>nul && set ELECTRON_RUN_AS_NODE=&& set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
+    "dev:win": "cmd /c \"chcp 65001>nul && set ELECTRON_RUN_AS_NODE=&& set AURIVO_DEV=1&& set PATH=C:\\msys64\\mingw64\\bin;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist\\windows;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native-dist;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\native\\build\\Release;C:\\Users\\muhan\\Desktop\\Aurivo-Medya-Player-windows\\bin;%PATH%&& electron . --enable-logging\""
   },
   "author": "Muhammet Dali",
   "homepage": "https://aurivo.app",
@@ -144,8 +144,8 @@
           ]
         },
         {
-          "from": "native-dist",
-          "to": "resources/native-dist",
+          "from": "native-dist/linux",
+          "to": "resources/native-dist/linux",
           "filter": [
             "aurivo-projectm-visualizer",
             "libprojectM-4.so*",
@@ -187,8 +187,8 @@
           ]
         },
         {
-          "from": "native-dist",
-          "to": "native-dist",
+          "from": "native-dist/windows",
+          "to": "native-dist/windows",
           "filter": [
             "aurivo-projectm-visualizer.exe",
             "*.dll"

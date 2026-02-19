@@ -30,6 +30,12 @@ function hex(buf) {
   return [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' ');
 }
 
+function resolveWindowsNativeDistDir(root) {
+  const preferred = path.join(root, 'native-dist', 'windows');
+  if (exists(preferred)) return preferred;
+  return path.join(root, 'native-dist');
+}
+
 function assertFileLooksLikeWindowsBinary(p, label) {
   if (!exists(p)) {
     const extra = [];
@@ -47,7 +53,7 @@ function assertFileLooksLikeWindowsBinary(p, label) {
       }
 
       if (wantsVisualizer) {
-        const nativeDistDir = path.join(root, 'native-dist');
+        const nativeDistDir = resolveWindowsNativeDistDir(root);
         if (exists(nativeDistDir)) {
           const hits = findFiles(nativeDistDir, (name) => /aurivo-projectm-visualizer/i.test(name), 40);
           if (hits.length) extra.push(`Bulunan adaylar:\n- ${hits.join('\n- ')}`);
@@ -105,6 +111,7 @@ function isLikelySystemDll(name) {
     'shlwapi.dll',
     'ucrtbase.dll',
     'user32.dll',
+    'version.dll',
     'winmm.dll',
     'ws2_32.dll'
   ]);
@@ -244,18 +251,7 @@ function assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe) {
       'libgcc_s_seh-1.dll',
       'libstdc++-6.dll',
       'libwinpthread-1.dll',
-      'libprojectM-4-4.dll',
-      // Transitive deps observed missing in real installs
-      'libfreetype-6.dll',
-      'libharfbuzz-0.dll',
-      'libbrotlidec.dll',
-      'libbrotlicommon.dll',
-      'libbrotlienc.dll',
-      'libbz2-1.dll',
-      'libiconv-2.dll',
-      'libintl-8.dll',
-      'libhwy.dll',
-      'libjxl_cms.dll'
+      'libprojectM-4-4.dll'
     ];
     const missing = mustExist.filter((n) => !exists(path.join(nativeDistDir, n)));
     if (missing.length) {
@@ -362,7 +358,8 @@ function main() {
   if (skipVisualizer) {
     console.warn('[verify-win-artifacts] ⚠ Visualizer kontrolü atlandı (AURIVO_SKIP_VISUALIZER=1).');
   } else {
-    const visualizerExe = path.join(root, 'native-dist', 'aurivo-projectm-visualizer.exe');
+    const nativeDistDir = resolveWindowsNativeDistDir(root);
+    const visualizerExe = path.join(nativeDistDir, 'aurivo-projectm-visualizer.exe');
     if (!exists(visualizerExe)) {
       if (visualizerOnly) {
         throw new Error(`Visualizer exe yok: ${visualizerExe}`);
@@ -370,8 +367,8 @@ function main() {
       console.warn('[verify-win-artifacts] ⚠ Visualizer exe yok (opsiyonel - çalışmaya devam edilecek):', visualizerExe);
     } else {
       assertFileLooksLikeWindowsBinary(visualizerExe, 'Visualizer exe (aurivo-projectm-visualizer.exe)');
-      assertVisualizerRuntimeDlls(path.join(root, 'native-dist'), visualizerExe);
-      assertVisualizerLaunchable(visualizerExe, path.join(root, 'native-dist'));
+      assertVisualizerRuntimeDlls(nativeDistDir, visualizerExe);
+      assertVisualizerLaunchable(visualizerExe, nativeDistDir);
     }
   }
 
@@ -417,7 +414,7 @@ try {
   console.error('\n[verify-win-artifacts] ❌', msg);
   console.error('\nİpucu: Windows installer üretmek için Windows ortamında derleyin:');
   console.error('- `native/build/Release/aurivo_audio.node` Windows için derlenmeli (MZ)');
-  console.error('- `native-dist/aurivo-projectm-visualizer.exe` Windows için derlenmeli (MZ)');
+  console.error('- `native-dist/windows/aurivo-projectm-visualizer.exe` Windows için derlenmeli (MZ)');
   console.error('- Sonra `npm run build:win`');
   process.exit(1);
 }

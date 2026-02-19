@@ -107,19 +107,19 @@ jobs:
           set -euo pipefail
           cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-visualizer
-          mkdir -p native-dist
-          cp -f build-visualizer/aurivo-projectm-visualizer native-dist/aurivo-projectm-visualizer
+          mkdir -p native-dist/linux
+          cp -f build-visualizer/aurivo-projectm-visualizer native-dist/linux/aurivo-projectm-visualizer
           for lib in libprojectM-4.so.4 libprojectM-4-playlist.so.4; do
             if [ -f "/usr/local/lib/$lib" ]; then
-              cp -Lf "/usr/local/lib/$lib" "native-dist/$lib"
+              cp -Lf "/usr/local/lib/$lib" "native-dist/linux/$lib"
             elif [ -f "/usr/local/lib/x86_64-linux-gnu/$lib" ]; then
-              cp -Lf "/usr/local/lib/x86_64-linux-gnu/$lib" "native-dist/$lib"
+              cp -Lf "/usr/local/lib/x86_64-linux-gnu/$lib" "native-dist/linux/$lib"
             else
               echo "Missing runtime library: $lib"
               exit 1
             fi
           done
-          chmod +x native-dist/aurivo-projectm-visualizer
+          chmod +x native-dist/linux/aurivo-projectm-visualizer
 
       - name: Build Linux packages (AppImage/deb/rpm)
         run: npm run -s build:linux:appimage -- --publish=never
@@ -245,8 +245,8 @@ jobs:
           set -euo pipefail
           cmake -S visualizer -B build-visualizer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/mingw64
           cmake --build build-visualizer
-          mkdir -p native-dist
-          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/aurivo-projectm-visualizer.exe
+          mkdir -p native-dist/windows
+          cp -f build-visualizer/aurivo-projectm-visualizer.exe native-dist/windows/aurivo-projectm-visualizer.exe
 
       - name: Prepare Windows resources (ffmpeg + visualizer DLLs)
         run: npm run -s prepare:win:resources

@@ -39,6 +39,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <dwmapi.h>
 #include <io.h>
 #include <GL/glew.h>
 #endif
@@ -137,6 +138,25 @@ static void setSdlWindowIconFromEnv(SDL_Window* w) {
     if (!w) return;
 
 #ifdef _WIN32
+    auto applyWindowsTitlebarTheme = [&](HWND hwnd) {
+        if (!hwnd) return;
+        // Windows 10/11: prefer dark caption so titlebar is not bright white.
+        BOOL dark = TRUE;
+        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_20 = 20;
+        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
+        HRESULT hr = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_20, &dark, sizeof(dark));
+        if (FAILED(hr)) {
+            (void)DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_19, &dark, sizeof(dark));
+        }
+        // Optional explicit caption/text colors (supported on newer Windows builds).
+        constexpr DWORD DWMWA_CAPTION_COLOR = 35;
+        constexpr DWORD DWMWA_TEXT_COLOR = 36;
+        COLORREF caption = RGB(24, 24, 24);
+        COLORREF text = RGB(236, 236, 236);
+        (void)DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+        (void)DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    };
+
     // Windows titlebar (sol ust) ikonu: WM_SETICON ile .ico yuklemek daha guvenilir.
     if (const char* icoPath = std::getenv("AURIVO_VISUALIZER_ICON_ICO")) {
         if (icoPath && *icoPath) {
@@ -144,6 +164,7 @@ static void setSdlWindowIconFromEnv(SDL_Window* w) {
             SDL_VERSION(&wmInfo.version);
             if (SDL_GetWindowWMInfo(w, &wmInfo) == SDL_TRUE) {
                 HWND hwnd = wmInfo.info.win.window;
+                applyWindowsTitlebarTheme(hwnd);
 
                 auto utf8ToWide = [](const char* s) -> std::wstring {
                     if (!s) return L"";
@@ -171,12 +192,21 @@ static void setSdlWindowIconFromEnv(SDL_Window* w) {
                     }
                     if (gIcoBig) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)gIcoBig);
                     if (gIcoSmall) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)gIcoSmall);
+                    if (gIcoBig) SetClassLongPtrW(hwnd, GCLP_HICON, (LONG_PTR)gIcoBig);
+                    if (gIcoSmall) SetClassLongPtrW(hwnd, GCLP_HICONSM, (LONG_PTR)gIcoSmall);
 
                     // Eger ikon ayarlandiysa, BMP fallback'e gecmeye gerek yok.
                     if (gIcoBig || gIcoSmall) return;
                 }
             }
         }
+    }
+
+    // Even if ico env is missing, still try to apply dark titlebar.
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(w, &wmInfo) == SDL_TRUE) {
+        applyWindowsTitlebarTheme(wmInfo.info.win.window);
     }
 #endif
 
@@ -198,6 +228,21 @@ static void setSdlWindowIconFromEnv(SDL_Window* w) {
     SDL_SetWindowIcon(w, iconSurf);
     SDL_FreeSurface(iconSurf);
 }
+
+#ifdef _WIN32
+static void setWindowsAppUserModelId() {
+    // Group visualizer with the main Aurivo app on taskbar.
+    // Must be called before top-level windows are created.
+    using SetAppIdFn = HRESULT (WINAPI*)(PCWSTR);
+    HMODULE shell32 = LoadLibraryW(L"shell32.dll");
+    if (!shell32) return;
+    auto setAppId = reinterpret_cast<SetAppIdFn>(GetProcAddress(shell32, "SetCurrentProcessExplicitAppUserModelID"));
+    if (setAppId) {
+        (void)setAppId(L"com.aurivo.mediaplayer");
+    }
+    FreeLibrary(shell32);
+}
+#endif
 
 enum class UiLang {
     EN,
@@ -2438,6 +2483,9 @@ static Uint32 getEventWindowId(const SDL_Event& e) {
 int main(int argc, char* argv[]) {
     ensureDllSearchPathFromExeDir();
     srand((unsigned)time(nullptr));
+#ifdef _WIN32
+    setWindowsAppUserModelId();
+#endif
 
     std::string presetsRoot = getPresetsPath(argc, argv);
     std::cout << "Presets root: " << presetsRoot << std::endl;
@@ -2718,5 +2766,3 @@ int main(int argc, char* argv[]) {
     shutdownAll();
     return 0;
 }
-
-

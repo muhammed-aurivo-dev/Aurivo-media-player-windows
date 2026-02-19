@@ -145,10 +145,18 @@ target_link_libraries(imgui PUBLIC
 )
 
 # Visualizer executable
-add_executable(aurivo-projectm-visualizer
-    main_imgui.cpp
-    gl_loader.cpp
-)
+# Windows: build as GUI subsystem (no extra console window).
+if (WIN32)
+    add_executable(aurivo-projectm-visualizer WIN32
+        main_imgui.cpp
+        gl_loader.cpp
+    )
+else()
+    add_executable(aurivo-projectm-visualizer
+        main_imgui.cpp
+        gl_loader.cpp
+    )
+endif()
 
 # Ensure UTF-8 source parsing on Windows (fix mojibake in non-ASCII UI strings)
 if (WIN32)
@@ -170,6 +178,11 @@ target_link_libraries(aurivo-projectm-visualizer
 
 if(PROJECTM_PLAYLIST_FOUND)
     target_link_libraries(aurivo-projectm-visualizer ${PROJECTM_PLAYLIST_LIBRARIES})
+endif()
+
+if (WIN32)
+    target_link_libraries(aurivo-projectm-visualizer shell32)
+    target_link_libraries(aurivo-projectm-visualizer dwmapi)
 endif()
 
 # Bundle-friendly runtime path: look for shared libraries next to the executable.

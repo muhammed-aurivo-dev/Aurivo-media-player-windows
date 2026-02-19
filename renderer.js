@@ -1104,11 +1104,11 @@ function setupEventListeners() {
     // Görselleştirici (projectM)
     const visualizerBtn = document.getElementById('visualizer-btn');
     if (visualizerBtn) {
-        visualizerBtn.addEventListener('click', () => {
-            if (window.app && window.app.visualizer && typeof window.app.visualizer.toggle === 'function') {
-                window.app.visualizer.toggle();
+        visualizerBtn.addEventListener('click', async () => {
+            if (window.app && window.app.visualizer && typeof window.app.visualizer.start === 'function') {
+                await window.app.visualizer.start();
             } else {
-                console.warn('Visualizer API yok (window.app.visualizer.toggle)');
+                console.warn('Visualizer API yok (window.app.visualizer.start)');
             }
         });
     }

@@ -812,7 +812,10 @@ try {
 // Görselleştirici API (projectM native çalıştırılabilir)
 const appAPI = {
     visualizer: {
-        toggle: () => ipcRenderer.invoke('visualizer:toggle')
+        toggle: () => ipcRenderer.invoke('visualizer:toggle'),
+        start: () => ipcRenderer.invoke('visualizer:start'),
+        stop: () => ipcRenderer.invoke('visualizer:stop'),
+        status: () => ipcRenderer.invoke('visualizer:status')
     }
 };
 
