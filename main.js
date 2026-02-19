@@ -559,6 +559,11 @@ function initAutoUpdater() {
         autoUpdater.autoDownload = false;
     } catch { }
     try {
+        // NSIS differential downloads can occasionally leave native runtime files inconsistent
+        // on some systems (locked files/AV interference). Prefer full installer for reliability.
+        autoUpdater.disableDifferentialDownload = true;
+    } catch { }
+    try {
         // Ensure we always target the canonical GitHub repo for updates even if app-update.yml is missing.
         // This avoids accidental linkage to older/other repos.
         autoUpdater.setFeedURL({
